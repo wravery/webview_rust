@@ -48,3 +48,5 @@ target
 
 # Cargo lock for libs
 Cargo.lock
+
+/Microsoft.Web.WebView2.1.0.*/
