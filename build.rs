@@ -5,7 +5,15 @@ fn main() -> io::Result<()> {
     let webview2_path = webview2_nuget::install()?;
     let source_path = webview2_nuget::link_dll(&webview2_path, &webview2_arch)?;
     let target_path = webview2_nuget::get_target_path()?;
-    webview2_nuget::copy_dll(&source_path, &target_path)
+    webview2_nuget::copy_dll(&source_path, &target_path)?;
+
+    cxx_build::bridge("src/lib.rs")
+        .file("src/webview2-rs.cpp")
+        .flag_if_supported("/std:c++17")
+        .flag_if_supported("/EHsc")
+        .compile("webview_official");
+
+    Ok(())
 }
 
 mod webview2_nuget {
@@ -58,15 +66,18 @@ mod webview2_nuget {
 
     pub fn link_dll(webview2_path: &str, webview2_arch: &str) -> io::Result<PathBuf> {
         // calculate full path to WebView2Loader.dll
-        let mut webview2_path_buf = PathBuf::from(webview2_path);
-        webview2_path_buf.push(webview2_arch);
-        let webview2_dir = webview2_path_buf.as_path().to_str().unwrap();
+        let mut source_path = PathBuf::from(webview2_path);
+        source_path.push(webview2_arch);
 
-        println!("cargo:rustc-link-search={}", webview2_dir);
+        match source_path.as_path().to_str() {
+            Some(dir) => println!("cargo:rustc-link-search={}", dir),
+            None => return Err(io::Error::from(io::ErrorKind::NotFound))
+        }
+
         println!("cargo:rustc-link-lib={}", WEBVIEW2_DLL);
 
-        webview2_path_buf.push(WEBVIEW2_DLL);
-        Ok(webview2_path_buf)
+        source_path.push(WEBVIEW2_DLL);
+        Ok(source_path)
     }
 
     pub fn get_target_path() -> io::Result<PathBuf> {
