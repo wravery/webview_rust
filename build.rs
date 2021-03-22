@@ -3,6 +3,12 @@ use std::io;
 fn main() -> io::Result<()> {
     let _webview2_path = webview2_nuget::install()?;
 
+    cxx_build::bridge("src/lib.rs")
+        .file("src/webview2-rs.cpp")
+        .flag_if_supported("/std:c++17")
+        .flag_if_supported("/EHsc")
+        .compile("webview_official");
+
     Ok(())
 }
 
