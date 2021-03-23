@@ -3,12 +3,15 @@ use std::io;
 fn main() -> io::Result<()> {
     let webview2_arch = webview2_nuget::get_arch()?;
     let webview2_path = webview2_nuget::install()?;
-    let source_path = webview2_nuget::link_dll(&webview2_path, &webview2_arch)?;
+    let mut webview2_include = webview2_path.clone();
+    webview2_include.push("include");
+    let source_path = webview2_nuget::link_dll(webview2_path, &webview2_arch)?;
     let target_path = webview2_nuget::get_target_path()?;
     webview2_nuget::copy_dll(&source_path, &target_path)?;
 
-    cxx_build::bridge("src/lib.rs")
-        .file("src/webview2-rs.cpp")
+    cxx_build::bridge("src/bridge.rs")
+        .include(webview2_include.as_path())
+        .file("src/bridge.cpp")
         .flag_if_supported("/std:c++17")
         .flag_if_supported("/EHsc")
         .compile("webview_official");
@@ -27,7 +30,7 @@ mod webview2_nuget {
     const WEBVIEW2_VERSION: &str = "1.0.774.44";
     const WEBVIEW2_DLL: &str = "WebView2Loader.dll";
 
-    pub fn install() -> io::Result<String> {
+    pub fn install() -> io::Result<PathBuf> {
         if !check_nuget_dir()? {
             Command::new("./tools/nuget.exe")
                 .args(&[
@@ -45,36 +48,39 @@ mod webview2_nuget {
             }
         }
 
-        Ok(format!(
-            "{}.{}/build/native",
+        Ok(PathBuf::from(format!(
+            ".\\{}.{}\\build\\native",
             WEBVIEW2_NAME, WEBVIEW2_VERSION
-        ))
+        )))
     }
 
     pub fn get_arch() -> io::Result<String> {
         match env::var("TARGET") {
             Ok(target) => {
-                if target.contains("x86_x64") {
-                    Ok(String::from("x64"))
+                let arch = if target.contains("x86_64") {
+                    "x64"
                 } else {
-                    Ok(String::from("x86"))
-                }
+                    "x86"
+                };
+                Ok(String::from(arch))
             }
             Err(_) => Err(io::Error::from(io::ErrorKind::InvalidInput)),
         }
     }
 
-    pub fn link_dll(webview2_path: &str, webview2_arch: &str) -> io::Result<PathBuf> {
+    pub fn link_dll(webview2_path: PathBuf, webview2_arch: &str) -> io::Result<PathBuf> {
         // calculate full path to WebView2Loader.dll
-        let mut source_path = PathBuf::from(webview2_path);
+        let mut source_path = webview2_path;
         source_path.push(webview2_arch);
 
         match source_path.as_path().to_str() {
-            Some(dir) => println!("cargo:rustc-link-search={}", dir),
-            None => return Err(io::Error::from(io::ErrorKind::NotFound))
+            Some(dir) => {
+                println!("cargo:rustc-link-search=native={}", dir);
+            }
+            None => return Err(io::Error::from(io::ErrorKind::NotFound)),
         }
 
-        println!("cargo:rustc-link-lib={}", WEBVIEW2_DLL);
+        println!("cargo:rustc-link-lib=static={}", WEBVIEW2_DLL);
 
         source_path.push(WEBVIEW2_DLL);
         Ok(source_path)

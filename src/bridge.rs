@@ -1,0 +1,306 @@
+// use crate::builder::WebviewBuilder;
+// use crate::webview::{SizeHint, Webview, Window};
+
+#[cxx::bridge]
+pub mod core {
+    #[derive(Debug)]
+    struct WebView2EnvironmentOptions {
+        aditional_browser_arguments: Vec<u16>,
+        language: Vec<u16>,
+        target_compatible_browser_version: Vec<u16>,
+        allow_single_sign_on_using_os_primary_account: bool,
+    }
+
+    extern "Rust" {
+        fn to_utf16(value: &str) -> Vec<u16>;
+        fn from_utf16(value: &[u16]) -> String;
+
+        type CreateWebView2EnvironmentCompletedHandler;
+
+        fn invoke_environment_complete(
+            handler: Box<CreateWebView2EnvironmentCompletedHandler>,
+            environment: UniquePtr<WebView2Environment>,
+        );
+
+        type CreateWebView2ControllerCompletedHandler;
+
+        fn invoke_controller_complete(
+            handler: Box<CreateWebView2ControllerCompletedHandler>,
+            environment: UniquePtr<WebView2Controller>,
+        );
+    }
+
+    unsafe extern "C++" {
+        include!("webview_official/src/bridge.h");
+
+        fn new_webview2_environment(
+            handler: Box<CreateWebView2EnvironmentCompletedHandler>,
+        ) -> Result<()>;
+
+        fn new_webview2_environment_with_options(
+            browser_executable_folder: &[u16],
+            user_data_folder: &[u16],
+            options: &WebView2EnvironmentOptions,
+            handler: Box<CreateWebView2EnvironmentCompletedHandler>,
+        ) -> Result<()>;
+
+        fn get_available_webview2_browser_version_string(
+            browser_executable_folder: &[u16],
+        ) -> Result<Vec<u16>>;
+
+        fn compare_browser_versions(version1: &[u16], version2: &[u16]) -> Result<i8>;
+
+        type WebView2Environment;
+
+        fn create_webview2_controller(
+            self: &WebView2Environment,
+            parent_window: isize,
+            handler: Box<CreateWebView2ControllerCompletedHandler>,
+        ) -> Result<()>;
+
+        type WebView2Controller;
+
+        // fn new_blob_store_client() -> UniquePtr<BlobStoreClient>;
+        // fn put(&self, parts: &mut MultiBuf) -> usize;
+        // fn tag(&self, blob_id: usize, tag: &str);
+        // fn metadata(&self, blob_id: usize) -> BlobMetadata;
+
+        type WebView2;
+
+        // fn new_blob_store_client() -> UniquePtr<BlobStoreClient>;
+        // fn put(&self, parts: &mut MultiBuf) -> usize;
+        // fn tag(&self, blob_id: usize, tag: &str);
+        // fn metadata(&self, blob_id: usize) -> BlobMetadata;
+    }
+}
+
+pub fn to_utf16(value: &str) -> Vec<u16> {
+    value.encode_utf16().collect()
+}
+
+pub fn from_utf16(value: &[u16]) -> String {
+    match String::from_utf16(value) {
+        Ok(result) => result,
+        Err(_) => String::new(),
+    }
+}
+
+impl core::WebView2EnvironmentOptions {
+    pub fn new(
+        aditional_browser_arguments: &str,
+        language: &str,
+        target_compatible_browser_version: &str,
+        allow_single_sign_on_using_os_primary_account: bool,
+    ) -> core::WebView2EnvironmentOptions {
+        core::WebView2EnvironmentOptions {
+            aditional_browser_arguments: to_utf16(aditional_browser_arguments),
+            language: to_utf16(language),
+            target_compatible_browser_version: to_utf16(target_compatible_browser_version),
+            allow_single_sign_on_using_os_primary_account,
+        }
+    }
+}
+
+type EnvironmentCompletedCallback = Box<dyn FnOnce(cxx::UniquePtr<core::WebView2Environment>)>;
+
+pub struct CreateWebView2EnvironmentCompletedHandler {
+    pub callback: EnvironmentCompletedCallback,
+}
+
+pub fn invoke_environment_complete(
+    handler: Box<CreateWebView2EnvironmentCompletedHandler>,
+    environment: cxx::UniquePtr<core::WebView2Environment>,
+) {
+    (handler.callback)(environment);
+}
+
+type ControllerCompletedCallback = Box<dyn FnOnce(cxx::UniquePtr<core::WebView2Controller>)>;
+
+pub struct CreateWebView2ControllerCompletedHandler {
+    pub callback: ControllerCompletedCallback,
+}
+
+pub fn invoke_controller_complete(
+    handler: Box<CreateWebView2ControllerCompletedHandler>,
+    controller: cxx::UniquePtr<core::WebView2Controller>,
+) {
+    (handler.callback)(controller);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bindings::windows::win32::{com, debug, windows_and_messaging};
+    use futures::{channel::oneshot, executor, task::LocalSpawnExt};
+
+    fn run_message_loop(pool: &mut executor::LocalPool) {
+        let mut msg = windows_and_messaging::MSG::default();
+        let h_wnd = windows_and_messaging::HWND::default();
+
+        loop {
+            if pool.try_run_one() {
+                println!("pool.try_run_one() returned true");
+                break;
+            }
+
+            unsafe {
+                match windows_and_messaging::GetMessageW(&mut msg, h_wnd, 0, 0).0 {
+                    -1 => panic!("GetMessageW failed: {}", debug::GetLastError()),
+                    0 => println!("GetMessageW returned 0"),
+                    _ => {
+                        windows_and_messaging::TranslateMessage(&msg);
+                        windows_and_messaging::DispatchMessageW(&msg);
+                    }
+                }
+            }
+        }
+    }
+
+    struct MessageLoopCompletedContext<T>(oneshot::Sender<T>);
+
+    #[test]
+    fn new_webview2_environment() {
+        let (tx, rx) = oneshot::channel();
+        let context = Box::new(MessageLoopCompletedContext(tx));
+        let mut pool = executor::LocalPool::new();
+        let spawner = pool.spawner();
+        let output = spawner
+            .spawn_local_with_handle(rx)
+            .expect("spawn_local_with_handle");
+
+        {
+            let environment = unsafe {
+                assert!(com::CoInitialize(0 as *mut _).is_ok());
+
+                core::new_webview2_environment(Box::new(
+                    CreateWebView2EnvironmentCompletedHandler {
+                        callback: Box::new(|environment| {
+                            let result = context.0.send(environment);
+                            assert!(matches!(result, Ok(())), "send the environment");
+                        }),
+                    },
+                ))
+                .expect("call new_webview2_environment");
+
+                run_message_loop(&mut pool);
+
+                pool.run_until(output).expect("receive the environment")
+            };
+
+            assert!(!environment.is_null());
+        }
+
+        unsafe {
+            // Wait until the environment has gone out of scope before calling CoUninitialize.
+            com::CoUninitialize();
+        }
+    }
+
+    #[test]
+    fn new_webview2_environment_with_options() {
+        let (tx, rx) = oneshot::channel();
+        let context = Box::new(MessageLoopCompletedContext(tx));
+        let mut pool = executor::LocalPool::new();
+        let spawner = pool.spawner();
+        let output = spawner
+            .spawn_local_with_handle(rx)
+            .expect("spawn_local_with_handle");
+        let options = core::WebView2EnvironmentOptions::new("", "en-US", "", true);
+
+        {
+            let environment = unsafe {
+                assert!(com::CoInitialize(0 as *mut _).is_ok());
+
+                core::new_webview2_environment_with_options(
+                    &[],
+                    &[],
+                    &options,
+                    Box::new(CreateWebView2EnvironmentCompletedHandler {
+                        callback: Box::new(|environment| {
+                            let result = context.0.send(environment);
+                            assert!(matches!(result, Ok(())), "send the environment");
+                        }),
+                    }),
+                )
+                .expect("call new_webview2_environment");
+
+                run_message_loop(&mut pool);
+
+                pool.run_until(output).expect("receive the environment")
+            };
+
+            assert!(!environment.is_null());
+        }
+
+        unsafe {
+            // Wait until the environment has gone out of scope before calling CoUninitialize.
+            com::CoUninitialize();
+        }
+    }
+
+    #[test]
+    fn get_available_webview2_browser_version_string() {
+        let available_version = unsafe {
+            assert!(com::CoInitialize(0 as *mut _).is_ok());
+            let available_version = core::get_available_webview2_browser_version_string(&[])
+                .expect("call new_webview2_environment");
+            com::CoUninitialize();
+
+            from_utf16(&available_version)
+        };
+
+        println!(
+            "get_available_webview2_browser_version_string: {}",
+            available_version
+        );
+        assert_ne!(available_version, String::new());
+    }
+
+    #[test]
+    fn compare_browser_versions_less() {
+        let version1 = to_utf16("89.0.774.57");
+        let version2 = to_utf16("89.0.800.50");
+        let comparison = unsafe {
+            assert!(com::CoInitialize(0 as *mut _).is_ok());
+            let comparison = core::compare_browser_versions(&version1, &version2)
+                .expect("call new_webview2_environment");
+            com::CoUninitialize();
+
+            comparison
+        };
+
+        assert_eq!(-1, comparison);
+    }
+
+    #[test]
+    fn compare_browser_versions_equal() {
+        let version1 = to_utf16("89.0.774.57");
+        let version2 = to_utf16("89.0.774.57");
+        let comparison = unsafe {
+            assert!(com::CoInitialize(0 as *mut _).is_ok());
+            let comparison = core::compare_browser_versions(&version1, &version2)
+                .expect("call new_webview2_environment");
+            com::CoUninitialize();
+
+            comparison
+        };
+
+        assert_eq!(0, comparison);
+    }
+
+    #[test]
+    fn compare_browser_versions_greater() {
+        let version1 = to_utf16("89.0.800.50");
+        let version2 = to_utf16("89.0.774.57");
+        let comparison = unsafe {
+            assert!(com::CoInitialize(0 as *mut _).is_ok());
+            let comparison = core::compare_browser_versions(&version1, &version2)
+                .expect("call new_webview2_environment");
+            com::CoUninitialize();
+
+            comparison
+        };
+
+        assert_eq!(1, comparison);
+    }
+}

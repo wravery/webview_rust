@@ -1,8 +1,8 @@
-#include "webview_official/include/webview2-rs.h"
-#include "webview_official/src/lib.rs.h"
+#include "webview_official/src/bridge.h"
+#include "webview_official/src/bridge.rs.h"
 
-#include "webview_official/Microsoft.Web.WebView2.1.0.774.44/build/native/include/WebView2.h"
-#include "webview_official/Microsoft.Web.WebView2.1.0.774.44/build/native/include/WebView2EnvironmentOptions.h"
+#include <WebView2.h>
+#include <WebView2EnvironmentOptions.h>
 
 #include <windows.h>
 #include <wrl.h>
@@ -40,6 +40,9 @@ rust::Vec<uint16_t> to_vec(std::wstring_view source)
 class WebView2Environment::impl
 {
 public:
+    impl();
+    ~impl();
+
     void CreateWebView2Controller(ptrdiff_t parent_window, rust::Box<CreateWebView2ControllerCompletedHandler> handler) const;
 
     Microsoft::WRL::ComPtr<ICoreWebView2Environment> m_environment;
@@ -57,6 +60,14 @@ public:
     Microsoft::WRL::ComPtr<ICoreWebView2> m_webview;
 };
 
+WebView2Environment::impl::impl()
+{
+}
+
+WebView2Environment::impl::~impl()
+{
+}
+
 void WebView2Environment::impl::CreateWebView2Controller(ptrdiff_t parent_window, rust::Box<CreateWebView2ControllerCompletedHandler> handler) const
 {
     if (!m_environment)
@@ -65,15 +76,16 @@ void WebView2Environment::impl::CreateWebView2Controller(ptrdiff_t parent_window
     }
 
     auto callback = Microsoft::WRL::Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
-        [handler = std::move(handler)](HRESULT hr, ICoreWebView2Controller *controller) noexcept {
+        [handler = std::move(handler)](HRESULT hr, ICoreWebView2Controller *controller) mutable noexcept {
+            std::unique_ptr<WebView2Controller> result;
+
             if (SUCCEEDED(hr) && nullptr != controller)
             {
-                auto result = std::make_unique<WebView2Controller>();
-
+                result = std::make_unique<WebView2Controller>();
                 result->m_pimpl->m_controller = controller;
-                invoke_controller_complete(*handler, std::move(result));
             }
 
+            invoke_controller_complete(std::move(handler), std::move(result));
             return S_OK;
         });
 
@@ -86,15 +98,16 @@ void WebView2Environment::impl::CreateWebView2Controller(ptrdiff_t parent_window
 void new_webview2_environment(rust::Box<CreateWebView2EnvironmentCompletedHandler> handler)
 {
     auto callback = Microsoft::WRL::Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
-        [handler = std::move(handler)](HRESULT hr, ICoreWebView2Environment *environment) noexcept {
+        [handler = std::move(handler)](HRESULT hr, ICoreWebView2Environment *environment) mutable noexcept {
+            std::unique_ptr<WebView2Environment> result;
+
             if (SUCCEEDED(hr) && nullptr != environment)
             {
-                auto result = std::make_unique<WebView2Environment>();
-
+                result = std::make_unique<WebView2Environment>();
                 result->m_pimpl->m_environment = environment;
-                invoke_environment_complete(*handler, std::move(result));
             }
 
+            invoke_environment_complete(std::move(handler), std::move(result));
             return S_OK;
         });
 
@@ -149,15 +162,16 @@ void new_webview2_environment_with_options(rust::Slice<const uint16_t> browser_e
     }
 
     auto callback = Microsoft::WRL::Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
-        [handler = std::move(handler)](HRESULT hr, ICoreWebView2Environment *environment) noexcept {
+        [handler = std::move(handler)](HRESULT hr, ICoreWebView2Environment *environment) mutable noexcept {
+            std::unique_ptr<WebView2Environment> result;
+
             if (SUCCEEDED(hr) && nullptr != environment)
             {
-                auto result = std::make_unique<WebView2Environment>();
-
+                result = std::make_unique<WebView2Environment>();
                 result->m_pimpl->m_environment = environment;
-                invoke_environment_complete(*handler, std::move(result));
             }
 
+            invoke_environment_complete(std::move(handler), std::move(result));
             return S_OK;
         });
 
