@@ -10,6 +10,7 @@ struct WebView2Settings;
 
 struct CreateWebView2EnvironmentCompletedHandler;
 struct CreateWebView2ControllerCompletedHandler;
+struct NavigationCompletedHandler;
 struct ExecuteScriptCompletedHandler;
 
 void new_webview2_environment(rust::Box<CreateWebView2EnvironmentCompletedHandler> handler);
@@ -24,23 +25,29 @@ rust::Vec<uint16_t> get_available_webview2_browser_version_string(rust::Slice<co
 int8_t compare_browser_versions(rust::Slice<const uint16_t> version1, rust::Slice<const uint16_t> version2);
 
 class WebView2Environment
+    : public std::enable_shared_from_this<WebView2Environment>
 {
 public:
-    WebView2Environment();
+    class impl;
+
+    WebView2Environment(std::unique_ptr<impl> &&pimpl);
     ~WebView2Environment();
 
     const WebView2Environment &create_webview2_controller(ptrdiff_t parent_window, rust::Box<CreateWebView2ControllerCompletedHandler> handler) const;
 
-    class impl;
+private:
     std::unique_ptr<impl> m_pimpl;
 };
 
 class WebView2;
 
 class WebView2Controller
+    : public std::enable_shared_from_this<WebView2Controller>
 {
 public:
-    WebView2Controller();
+    class impl;
+
+    WebView2Controller(std::unique_ptr<impl> &&pimpl);
     ~WebView2Controller();
 
     const WebView2Controller &visible(bool value) const;
@@ -50,7 +57,7 @@ public:
     void close() const;
     std::shared_ptr<WebView2> get_webview() const;
 
-    class impl;
+private:
     std::unique_ptr<impl> m_pimpl;
 };
 
@@ -58,13 +65,15 @@ class WebView2
     : public std::enable_shared_from_this<WebView2>
 {
 public:
-    WebView2();
+    class impl;
+
+    WebView2(std::unique_ptr<impl> &&pimpl);
     ~WebView2();
 
     const WebView2 &settings(WebView2Settings value) const;
     WebView2Settings get_settings() const;
-    const WebView2 &navigate(rust::Slice<const uint16_t> url) const;
-    const WebView2 &navigate_to_string(rust::Slice<const uint16_t> html_content) const;
+    const WebView2 &navigate(rust::Slice<const uint16_t> url, rust::Box<NavigationCompletedHandler> handler) const;
+    const WebView2 &navigate_to_string(rust::Slice<const uint16_t> html_content, rust::Box<NavigationCompletedHandler> handler) const;
     const WebView2 &execute_script(rust::Slice<const uint16_t> javascript, rust::Box<ExecuteScriptCompletedHandler> handler) const;
     const WebView2 &reload() const;
     const WebView2 &post_web_message(rust::Slice<const uint16_t> json_message) const;
@@ -72,6 +81,6 @@ public:
     rust::Vec<uint16_t> get_document_title() const;
     const WebView2 &open_dev_tools_window() const;
 
-    class impl;
+private:
     std::unique_ptr<impl> m_pimpl;
 };

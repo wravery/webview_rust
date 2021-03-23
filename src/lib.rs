@@ -1,7 +1,7 @@
-mod bridge;
+pub mod bridge;
 mod builder;
 mod webview;
 
-pub use bridge::*;
+pub use bindings;
 pub use builder::WebviewBuilder;
 pub use webview::{SizeHint, Webview, Window};
