@@ -60,6 +60,9 @@ pub mod core {
 
         type WebView2Controller;
 
+        fn visible(self: &WebView2Controller, value: bool) -> Result<&WebView2Controller>;
+        fn is_visible(self: &WebView2Controller) -> Result<bool>;
+
         // fn new_blob_store_client() -> UniquePtr<BlobStoreClient>;
         // fn put(&self, parts: &mut MultiBuf) -> usize;
         // fn tag(&self, blob_id: usize, tag: &str);

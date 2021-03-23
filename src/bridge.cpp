@@ -40,40 +40,38 @@ rust::Vec<uint16_t> to_vec(std::wstring_view source)
 class WebView2Environment::impl
 {
 public:
-    impl();
-    ~impl();
-
     void CreateWebView2Controller(ptrdiff_t parent_window, rust::Box<CreateWebView2ControllerCompletedHandler> handler) const;
 
     Microsoft::WRL::ComPtr<ICoreWebView2Environment> m_environment;
+
+private:
+    void CheckCreated() const;
 };
 
 class WebView2Controller::impl
 {
 public:
+    bool get_IsVisible() const;
+    void put_IsVisible(bool value) const;
+
     Microsoft::WRL::ComPtr<ICoreWebView2Controller> m_controller;
+
+private:
+    void CheckCreated() const;
 };
 
 class WebView2::impl
 {
 public:
     Microsoft::WRL::ComPtr<ICoreWebView2> m_webview;
+
+private:
+    void CheckCreated() const;
 };
-
-WebView2Environment::impl::impl()
-{
-}
-
-WebView2Environment::impl::~impl()
-{
-}
 
 void WebView2Environment::impl::CreateWebView2Controller(ptrdiff_t parent_window, rust::Box<CreateWebView2ControllerCompletedHandler> handler) const
 {
-    if (!m_environment)
-    {
-        throw std::runtime_error("ICoreWebView2Environment creation failed");
-    }
+    CheckCreated();
 
     auto callback = Microsoft::WRL::Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
         [handler = std::move(handler)](HRESULT hr, ICoreWebView2Controller *controller) mutable noexcept {
@@ -92,6 +90,54 @@ void WebView2Environment::impl::CreateWebView2Controller(ptrdiff_t parent_window
     if (FAILED(m_environment->CreateCoreWebView2Controller(reinterpret_cast<HWND>(parent_window), callback.Get())))
     {
         throw std::runtime_error("CreateCoreWebView2Controller failed");
+    }
+}
+
+void WebView2Environment::impl::CheckCreated() const
+{
+    if (!m_environment)
+    {
+        throw std::runtime_error("ICoreWebView2Environment creation failed");
+    }
+}
+
+bool WebView2Controller::impl::get_IsVisible() const
+{
+    CheckCreated();
+
+    BOOL result = false;
+
+    if (FAILED(m_controller->get_IsVisible(&result)))
+    {
+        throw std::runtime_error("get_IsVisible failed");
+    }
+
+    return static_cast<bool>(result);
+}
+
+void WebView2Controller::impl::put_IsVisible(bool value) const
+{
+    CheckCreated();
+
+    if (FAILED(m_controller->put_IsVisible(static_cast<BOOL>(value))))
+    {
+        throw std::runtime_error("put_IsVisible failed");
+    }
+}
+
+void WebView2Controller::impl::CheckCreated() const
+{
+    if (!m_controller)
+    {
+        throw std::runtime_error("ICoreWebView2Controller creation failed");
+    }
+}
+
+void WebView2::impl::CheckCreated() const
+{
+    if (!m_webview)
+    {
+        throw std::runtime_error("ICoreWebView2 creation failed");
     }
 }
 
@@ -243,6 +289,17 @@ WebView2Controller::WebView2Controller()
 
 WebView2Controller::~WebView2Controller()
 {
+}
+
+const WebView2Controller& WebView2Controller::visible(bool value) const
+{
+    m_pimpl->put_IsVisible(value);
+    return *this;
+}
+
+bool WebView2Controller::is_visible() const
+{
+    return m_pimpl->get_IsVisible();
 }
 
 WebView2::WebView2()

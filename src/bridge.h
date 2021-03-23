@@ -38,6 +38,9 @@ public:
     WebView2Controller();
     ~WebView2Controller();
 
+    const WebView2Controller& visible(bool value) const;
+    bool is_visible() const;
+
     class impl;
     std::unique_ptr<impl> m_pimpl;
 };
