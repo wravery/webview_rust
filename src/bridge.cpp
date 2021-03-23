@@ -83,8 +83,8 @@ public:
 
     bool get_IsVisible() const;
     void put_IsVisible(bool value) const;
-    BoundsRectangle get_Bounds() const;
-    void put_Bounds(BoundsRectangle value) const;
+    WebView2ControllerBounds get_Bounds() const;
+    void put_Bounds(WebView2ControllerBounds value) const;
     void Close();
     std::shared_ptr<WebView2> get_WebView(std::shared_ptr<const WebView2Controller> instance);
 
@@ -185,7 +185,7 @@ void WebView2Controller::impl::put_IsVisible(bool value) const
     CHECK_HR(m_controller->put_IsVisible(static_cast<BOOL>(value)));
 }
 
-BoundsRectangle WebView2Controller::impl::get_Bounds() const
+WebView2ControllerBounds WebView2Controller::impl::get_Bounds() const
 {
     CheckCreated();
 
@@ -193,7 +193,7 @@ BoundsRectangle WebView2Controller::impl::get_Bounds() const
 
     CHECK_HR(m_controller->get_Bounds(&value));
 
-    BoundsRectangle result{};
+    WebView2ControllerBounds result{};
 
     result.left = value.left;
     result.top = value.top;
@@ -203,7 +203,7 @@ BoundsRectangle WebView2Controller::impl::get_Bounds() const
     return result;
 }
 
-void WebView2Controller::impl::put_Bounds(BoundsRectangle value) const
+void WebView2Controller::impl::put_Bounds(WebView2ControllerBounds value) const
 {
     CheckCreated();
 
@@ -572,13 +572,13 @@ bool WebView2Controller::get_visible() const
     return m_pimpl->get_IsVisible();
 }
 
-const WebView2Controller &WebView2Controller::bounds(BoundsRectangle value) const
+const WebView2Controller &WebView2Controller::bounds(WebView2ControllerBounds value) const
 {
     m_pimpl->put_Bounds(value);
     return *this;
 }
 
-BoundsRectangle WebView2Controller::get_bounds() const
+WebView2ControllerBounds WebView2Controller::get_bounds() const
 {
     return m_pimpl->get_Bounds();
 }

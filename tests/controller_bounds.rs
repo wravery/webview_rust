@@ -16,7 +16,7 @@ fn controller_bounds() {
         assert_eq!(bounds.bottom, 0);
         // Set distinct values for each value in the bounds rectangle and make sure it sticks.
         let bounds = controller
-            .bounds(core::BoundsRectangle {
+            .bounds(core::WebView2ControllerBounds {
                 left: 10,
                 top: 20,
                 right: 30,

@@ -5,7 +5,7 @@
 #include <memory>
 
 struct WebView2EnvironmentOptions;
-struct BoundsRectangle;
+struct WebView2ControllerBounds;
 struct WebView2Settings;
 
 struct CreateWebView2EnvironmentCompletedHandler;
@@ -52,8 +52,8 @@ public:
 
     const WebView2Controller &visible(bool value) const;
     bool get_visible() const;
-    const WebView2Controller &bounds(BoundsRectangle value) const;
-    BoundsRectangle get_bounds() const;
+    const WebView2Controller &bounds(WebView2ControllerBounds value) const;
+    WebView2ControllerBounds get_bounds() const;
     void close() const;
     std::shared_ptr<WebView2> get_webview() const;
 

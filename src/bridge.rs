@@ -9,7 +9,7 @@ pub mod core {
     }
 
     #[derive(Debug)]
-    struct BoundsRectangle {
+    struct WebView2ControllerBounds {
         left: i32,
         top: i32,
         right: i32,
@@ -87,9 +87,11 @@ pub mod core {
 
         fn visible(self: &WebView2Controller, value: bool) -> Result<&WebView2Controller>;
         fn get_visible(self: &WebView2Controller) -> Result<bool>;
-        fn bounds(self: &WebView2Controller, value: BoundsRectangle)
-            -> Result<&WebView2Controller>;
-        fn get_bounds(self: &WebView2Controller) -> Result<BoundsRectangle>;
+        fn bounds(
+            self: &WebView2Controller,
+            value: WebView2ControllerBounds,
+        ) -> Result<&WebView2Controller>;
+        fn get_bounds(self: &WebView2Controller) -> Result<WebView2ControllerBounds>;
         fn close(self: &WebView2Controller) -> Result<()>;
         fn get_webview(self: &WebView2Controller) -> Result<SharedPtr<WebView2>>;
 
