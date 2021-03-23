@@ -11,6 +11,26 @@ pub mod core {
         allow_single_sign_on_using_os_primary_account: bool,
     }
 
+    #[derive(Debug)]
+    struct BoundsRectangle {
+        left: i32,
+        top: i32,
+        right: i32,
+        bottom: i32,
+    }
+
+    #[derive(Debug)]
+    struct WebView2Settings {
+        is_script_enabled: bool,
+        is_web_message_enabled: bool,
+        are_default_script_dialogs_enabled: bool,
+        is_status_bar_enabled: bool,
+        are_dev_tools_enabled: bool,
+        are_default_context_menus_enabled: bool,
+        is_zoom_control_enabled: bool,
+        is_built_in_error_page_enabled: bool,
+    }
+
     extern "Rust" {
         fn to_utf16(value: &str) -> Vec<u16>;
         fn from_utf16(value: &[u16]) -> String;
@@ -26,8 +46,12 @@ pub mod core {
 
         fn invoke_controller_complete(
             handler: Box<CreateWebView2ControllerCompletedHandler>,
-            environment: UniquePtr<WebView2Controller>,
+            controller: UniquePtr<WebView2Controller>,
         );
+
+        type ExecuteScriptCompletedHandler;
+
+        fn invoke_script_complete(handler: Box<ExecuteScriptCompletedHandler>, result: Vec<u16>);
     }
 
     unsafe extern "C++" {
@@ -56,24 +80,34 @@ pub mod core {
             self: &WebView2Environment,
             parent_window: isize,
             handler: Box<CreateWebView2ControllerCompletedHandler>,
-        ) -> Result<()>;
+        ) -> Result<&WebView2Environment>;
 
         type WebView2Controller;
 
         fn visible(self: &WebView2Controller, value: bool) -> Result<&WebView2Controller>;
-        fn is_visible(self: &WebView2Controller) -> Result<bool>;
-
-        // fn new_blob_store_client() -> UniquePtr<BlobStoreClient>;
-        // fn put(&self, parts: &mut MultiBuf) -> usize;
-        // fn tag(&self, blob_id: usize, tag: &str);
-        // fn metadata(&self, blob_id: usize) -> BlobMetadata;
+        fn get_visible(self: &WebView2Controller) -> Result<bool>;
+        fn bounds(self: &WebView2Controller, value: BoundsRectangle)
+            -> Result<&WebView2Controller>;
+        fn get_bounds(self: &WebView2Controller) -> Result<BoundsRectangle>;
+        fn close(self: &WebView2Controller);
+        fn get_webview(self: &WebView2Controller) -> Result<SharedPtr<WebView2>>;
 
         type WebView2;
 
-        // fn new_blob_store_client() -> UniquePtr<BlobStoreClient>;
-        // fn put(&self, parts: &mut MultiBuf) -> usize;
-        // fn tag(&self, blob_id: usize, tag: &str);
-        // fn metadata(&self, blob_id: usize) -> BlobMetadata;
+        fn settings(self: &WebView2, value: WebView2Settings) -> Result<&WebView2>;
+        fn get_settings(self: &WebView2) -> Result<WebView2Settings>;
+        fn navigate(self: &WebView2, url: &[u16]) -> Result<&WebView2>;
+        fn navigate_to_string(self: &WebView2, html_content: &[u16]) -> Result<&WebView2>;
+        fn execute_script(
+            self: &WebView2,
+            javascript: &[u16],
+            handler: Box<ExecuteScriptCompletedHandler>,
+        ) -> Result<&WebView2>;
+        fn reload(self: &WebView2) -> Result<&WebView2>;
+        fn post_web_message(self: &WebView2, json_message: &[u16]) -> Result<&WebView2>;
+        fn stop(self: &WebView2) -> Result<&WebView2>;
+        fn get_document_title(self: &WebView2) -> Result<Vec<u16>>;
+        fn open_dev_tools_window(self: &WebView2) -> Result<&WebView2>;
     }
 }
 
@@ -130,17 +164,25 @@ pub fn invoke_controller_complete(
     (handler.callback)(controller);
 }
 
+type ExecuteScriptCompletedCallback = Box<dyn FnOnce(String)>;
+
+pub struct ExecuteScriptCompletedHandler {
+    pub callback: ExecuteScriptCompletedCallback,
+}
+
+pub fn invoke_script_complete(handler: Box<ExecuteScriptCompletedHandler>, result: Vec<u16>) {
+    (handler.callback)(from_utf16(&result));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bindings::windows::{
-        win32::{
-            com, debug,
-            menus_and_resources::HMENU,
-            system_services::{self, HINSTANCE, LRESULT, PWSTR},
-            windows_and_messaging::{
-                self, HWND, LPARAM, WINDOWS_EX_STYLE, WINDOWS_STYLE, WNDCLASSW, WPARAM,
-            },
+    use bindings::windows::win32::{
+        com, debug,
+        menus_and_resources::HMENU,
+        system_services::{self, HINSTANCE, LRESULT, PWSTR},
+        windows_and_messaging::{
+            self, HWND, LPARAM, WINDOWS_EX_STYLE, WINDOWS_STYLE, WNDCLASSW, WPARAM,
         },
     };
     use futures::{channel::oneshot, executor, task::LocalSpawnExt};

@@ -5,9 +5,12 @@
 #include <memory>
 
 struct WebView2EnvironmentOptions;
+struct BoundsRectangle;
+struct WebView2Settings;
 
 struct CreateWebView2EnvironmentCompletedHandler;
 struct CreateWebView2ControllerCompletedHandler;
+struct ExecuteScriptCompletedHandler;
 
 void new_webview2_environment(rust::Box<CreateWebView2EnvironmentCompletedHandler> handler);
 
@@ -26,11 +29,13 @@ public:
     WebView2Environment();
     ~WebView2Environment();
 
-    void create_webview2_controller(ptrdiff_t parent_window, rust::Box<CreateWebView2ControllerCompletedHandler> handler) const;
+    const WebView2Environment &create_webview2_controller(ptrdiff_t parent_window, rust::Box<CreateWebView2ControllerCompletedHandler> handler) const;
 
     class impl;
     std::unique_ptr<impl> m_pimpl;
 };
+
+class WebView2;
 
 class WebView2Controller
 {
@@ -38,20 +43,35 @@ public:
     WebView2Controller();
     ~WebView2Controller();
 
-    const WebView2Controller& visible(bool value) const;
-    bool is_visible() const;
+    const WebView2Controller &visible(bool value) const;
+    bool get_visible() const;
+    const WebView2Controller &bounds(BoundsRectangle value) const;
+    BoundsRectangle get_bounds() const;
+    void close() const;
+    std::shared_ptr<WebView2> get_webview() const;
 
     class impl;
     std::unique_ptr<impl> m_pimpl;
 };
 
 class WebView2
+    : public std::enable_shared_from_this<WebView2>
 {
 public:
     WebView2();
     ~WebView2();
 
+    const WebView2 &settings(WebView2Settings value) const;
+    WebView2Settings get_settings() const;
+    const WebView2 &navigate(rust::Slice<const uint16_t> url) const;
+    const WebView2 &navigate_to_string(rust::Slice<const uint16_t> html_content) const;
+    const WebView2 &execute_script(rust::Slice<const uint16_t> javascript, rust::Box<ExecuteScriptCompletedHandler> handler) const;
+    const WebView2 &reload() const;
+    const WebView2 &post_web_message(rust::Slice<const uint16_t> json_message) const;
+    const WebView2 &stop() const;
+    rust::Vec<uint16_t> get_document_title() const;
+    const WebView2 &open_dev_tools_window() const;
+
     class impl;
     std::unique_ptr<impl> m_pimpl;
 };
-
