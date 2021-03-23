@@ -130,7 +130,16 @@ pub fn invoke_controller_complete(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bindings::windows::win32::{com, debug, windows_and_messaging};
+    use bindings::windows::{
+        win32::{
+            com, debug,
+            menus_and_resources::HMENU,
+            system_services::{self, HINSTANCE, LRESULT, PWSTR},
+            windows_and_messaging::{
+                self, HWND, LPARAM, WINDOWS_EX_STYLE, WINDOWS_STYLE, WNDCLASSW, WPARAM,
+            },
+        },
+    };
     use futures::{channel::oneshot, executor, task::LocalSpawnExt};
 
     fn run_message_loop(pool: &mut executor::LocalPool) {
@@ -302,5 +311,119 @@ mod tests {
         };
 
         assert_eq!(1, comparison);
+    }
+
+    extern "system" fn test_window_proc(
+        h_wnd: HWND,
+        msg: u32,
+        w_param: WPARAM,
+        l_param: LPARAM,
+    ) -> LRESULT {
+        unsafe { windows_and_messaging::DefWindowProcW(h_wnd, msg, w_param, l_param) }
+    }
+
+    fn register_window_class() -> Vec<u16> {
+        static mut IS_REGISTERED: bool = false;
+
+        unsafe {
+            let mut class_name = to_utf16("TestWindow");
+            class_name.push(0);
+
+            if !IS_REGISTERED {
+                let mut window_class = WNDCLASSW::default();
+                window_class.lpfn_wnd_proc = Some(test_window_proc);
+                window_class.lpsz_class_name = PWSTR(class_name.as_mut_ptr());
+                windows_and_messaging::RegisterClassW(&window_class);
+
+                IS_REGISTERED = true;
+            }
+
+            class_name
+        }
+    }
+
+    fn create_test_window(name: &str) -> HWND {
+        let mut class_name = register_window_class();
+
+        let mut window_name = to_utf16(name);
+        window_name.push(0);
+
+        unsafe {
+            windows_and_messaging::CreateWindowExW(
+                WINDOWS_EX_STYLE(0),
+                PWSTR(class_name.as_mut_ptr()),
+                PWSTR(window_name.as_mut_ptr()),
+                WINDOWS_STYLE::WS_OVERLAPPED,
+                windows_and_messaging::CW_USEDEFAULT,
+                windows_and_messaging::CW_USEDEFAULT,
+                windows_and_messaging::CW_USEDEFAULT,
+                windows_and_messaging::CW_USEDEFAULT,
+                HWND(0),
+                HMENU(0),
+                HINSTANCE(system_services::GetModuleHandleW(PWSTR(0 as *mut _))),
+                0 as *mut _,
+            )
+        }
+    }
+
+    #[test]
+    fn create_webview2_controller() {
+        let (tx, rx) = oneshot::channel();
+        let context = Box::new(MessageLoopCompletedContext(tx));
+        let mut pool = executor::LocalPool::new();
+        let spawner = pool.spawner();
+        let output = spawner
+            .spawn_local_with_handle(rx)
+            .expect("spawn_local_with_handle");
+
+        {
+            let environment = unsafe {
+                assert!(com::CoInitialize(0 as *mut _).is_ok());
+
+                core::new_webview2_environment(Box::new(
+                    CreateWebView2EnvironmentCompletedHandler {
+                        callback: Box::new(|environment| {
+                            let result = context.0.send(environment);
+                            assert!(matches!(result, Ok(())), "send the environment");
+                        }),
+                    },
+                ))
+                .expect("call new_webview2_environment");
+
+                run_message_loop(&mut pool);
+
+                pool.run_until(output).expect("receive the environment")
+            };
+            assert!(!environment.is_null());
+
+            let frame = create_test_window("create_webview2_controller");
+            let (tx, rx) = oneshot::channel();
+            let context = Box::new(MessageLoopCompletedContext(tx));
+            let output = spawner
+                .spawn_local_with_handle(rx)
+                .expect("spawn_local_with_handle");
+
+            environment
+                .create_webview2_controller(
+                    frame.0,
+                    Box::new(CreateWebView2ControllerCompletedHandler {
+                        callback: Box::new(|controller| {
+                            let result = context.0.send(controller);
+                            assert!(matches!(result, Ok(())), "send the controller");
+                        }),
+                    }),
+                )
+                .expect("call create_webview2_controller");
+
+            run_message_loop(&mut pool);
+
+            let controller = pool.run_until(output).expect("receive the environment");
+            assert!(!controller.is_null());
+        }
+
+        unsafe {
+            // Wait until the environment has gone out of scope before calling CoUninitialize.
+            com::CoUninitialize();
+        }
     }
 }
