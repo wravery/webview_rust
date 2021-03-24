@@ -36,7 +36,10 @@ pub fn run_message_loop(pool: &mut executor::LocalPool) {
         unsafe {
             match windows_and_messaging::GetMessageW(&mut msg, h_wnd, 0, 0).0 {
                 -1 => panic!("GetMessageW failed: {}", debug::GetLastError()),
-                0 => println!("GetMessageW returned 0"),
+                0 => {
+                    println!("GetMessageW returned 0 for WM_QUIT");
+                    break;
+                }
                 _ => {
                     windows_and_messaging::TranslateMessage(&msg);
                     windows_and_messaging::DispatchMessageW(&msg);
@@ -133,7 +136,7 @@ impl Drop for TestWindow {
         match self.0 {
             HWND(0) => (),
             _ => unsafe {
-                println!("DestroyWindow(0x{:08X})", self.0.0);
+                println!("DestroyWindow(0x{:08X})", self.0 .0);
                 windows_and_messaging::DestroyWindow(self.0);
                 self.0 = HWND(0);
             },
