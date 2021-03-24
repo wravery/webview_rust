@@ -5,7 +5,7 @@ use std::{sync::mpsc, thread};
 use webview_official::bridge;
 
 #[test]
-fn webview_add_web_message_received() {
+fn webview_web_message_received() {
     common::initialize_com();
 
     let (tx_wait, rx_wait) = mpsc::channel();
@@ -22,7 +22,7 @@ fn webview_add_web_message_received() {
         .expect("spawn_local_with_handle");
 
     {
-        let frame = common::create_test_window("webview_add_web_message_received");
+        let frame = common::create_test_window("webview_web_message_received");
         let webview = common::navigate_to_test_html(&frame);
         let token = webview
             .add_web_message_received(Box::new(bridge::WebMessageReceivedHandler::new(Box::new(
