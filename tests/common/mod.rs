@@ -126,15 +126,30 @@ fn register_window_class() -> Vec<u16> {
     }
 }
 
+pub struct TestWindow(HWND);
+
+impl Drop for TestWindow {
+    fn drop(&mut self) {
+        match self.0 {
+            HWND(0) => (),
+            _ => unsafe {
+                println!("DestroyWindow(0x{:08X})", self.0.0);
+                windows_and_messaging::DestroyWindow(self.0);
+                self.0 = HWND(0);
+            },
+        };
+    }
+}
+
 #[allow(dead_code)]
-pub fn create_test_window(name: &str) -> HWND {
+pub fn create_test_window(name: &str) -> TestWindow {
     let mut class_name = register_window_class();
 
     let mut window_name = bridge::to_utf16(name);
     window_name.push(0);
 
     unsafe {
-        windows_and_messaging::CreateWindowExW(
+        TestWindow(windows_and_messaging::CreateWindowExW(
             WINDOWS_EX_STYLE(0),
             PWSTR(class_name.as_mut_ptr()),
             PWSTR(window_name.as_mut_ptr()),
@@ -147,11 +162,11 @@ pub fn create_test_window(name: &str) -> HWND {
             HMENU(0),
             HINSTANCE(system_services::GetModuleHandleW(PWSTR(0 as *mut _))),
             0 as *mut _,
-        )
+        ))
     }
 }
 
-pub fn create_test_controller(frame: &HWND) -> cxx::SharedPtr<core::WebView2Controller> {
+pub fn create_test_controller(frame: &TestWindow) -> cxx::SharedPtr<core::WebView2Controller> {
     let environment = create_test_environment();
     let (tx, rx) = oneshot::channel();
     let mut pool = executor::LocalPool::new();
@@ -163,7 +178,7 @@ pub fn create_test_controller(frame: &HWND) -> cxx::SharedPtr<core::WebView2Cont
 
     environment
         .create_webview2_controller(
-            frame.0,
+            frame.0 .0,
             Box::new(bridge::CreateWebView2ControllerCompletedHandler::new(
                 Box::new(|controller| {
                     context.send(controller);
@@ -180,7 +195,7 @@ pub fn create_test_controller(frame: &HWND) -> cxx::SharedPtr<core::WebView2Cont
     controller
 }
 
-pub fn create_test_webview(frame: &HWND) -> cxx::SharedPtr<core::WebView2> {
+pub fn create_test_webview(frame: &TestWindow) -> cxx::SharedPtr<core::WebView2> {
     let webview = create_test_controller(frame)
         .get_webview()
         .expect("call get_webview");
@@ -190,7 +205,7 @@ pub fn create_test_webview(frame: &HWND) -> cxx::SharedPtr<core::WebView2> {
 }
 
 #[allow(dead_code)]
-pub fn navigate_to_test_html(frame: &HWND) -> cxx::SharedPtr<core::WebView2> {
+pub fn navigate_to_test_html(frame: &TestWindow) -> cxx::SharedPtr<core::WebView2> {
     let webview = create_test_webview(frame);
     let (tx, rx) = oneshot::channel();
     let mut pool = executor::LocalPool::new();
