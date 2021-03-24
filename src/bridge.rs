@@ -50,9 +50,27 @@ pub mod core {
 
         fn invoke_navigation_complete(handler: Box<NavigationCompletedHandler>, webview: &WebView2);
 
+        type AddScriptToExecuteOnDocumentCreatedCompletedHandler;
+
+        fn invoke_add_script_on_document_created_complete(
+            handler: Box<AddScriptToExecuteOnDocumentCreatedCompletedHandler>,
+            id: Vec<u16>,
+        );
+
         type ExecuteScriptCompletedHandler;
 
-        fn invoke_script_complete(handler: Box<ExecuteScriptCompletedHandler>, result: Vec<u16>);
+        fn invoke_execute_script_complete(
+            handler: Box<ExecuteScriptCompletedHandler>,
+            result: Vec<u16>,
+        );
+
+        type WebMessageReceivedHandler;
+
+        fn invoke_web_message_received(
+            handler: &WebMessageReceivedHandler,
+            source: Vec<u16>,
+            message: Vec<u16>,
+        );
     }
 
     unsafe extern "C++" {
@@ -109,6 +127,15 @@ pub mod core {
             html_content: &[u16],
             handler: Box<NavigationCompletedHandler>,
         ) -> Result<&WebView2>;
+        fn add_script_to_execute_on_document_created(
+            self: &WebView2,
+            javascript: &[u16],
+            handler: Box<AddScriptToExecuteOnDocumentCreatedCompletedHandler>,
+        ) -> Result<&WebView2>;
+        fn remove_script_to_execute_on_document_created(
+            self: &WebView2,
+            id: &[u16],
+        ) -> Result<&WebView2>;
         fn execute_script(
             self: &WebView2,
             javascript: &[u16],
@@ -116,6 +143,11 @@ pub mod core {
         ) -> Result<&WebView2>;
         fn reload(self: &WebView2) -> Result<&WebView2>;
         fn post_web_message(self: &WebView2, json_message: &[u16]) -> Result<&WebView2>;
+        fn add_web_message_received(
+            self: &WebView2,
+            handler: Box<WebMessageReceivedHandler>,
+        ) -> Result<i64>;
+        fn remove_web_message_received(self: &WebView2, token: i64) -> Result<&WebView2>;
         fn stop(self: &WebView2) -> Result<&WebView2>;
         fn get_document_title(self: &WebView2) -> Result<Vec<u16>>;
         fn open_dev_tools_window(self: &WebView2) -> Result<&WebView2>;
@@ -152,12 +184,16 @@ impl core::WebView2EnvironmentOptions {
 type EnvironmentCompletedCallback = Box<dyn FnOnce(cxx::SharedPtr<core::WebView2Environment>)>;
 
 pub struct CreateWebView2EnvironmentCompletedHandler {
-    pub callback: EnvironmentCompletedCallback,
+    callback: EnvironmentCompletedCallback,
 }
 
 impl CreateWebView2EnvironmentCompletedHandler {
     pub fn new(callback: EnvironmentCompletedCallback) -> Self {
         Self { callback }
+    }
+
+    pub fn handle(self, environment: cxx::SharedPtr<core::WebView2Environment>) {
+        (self.callback)(environment);
     }
 }
 
@@ -165,18 +201,22 @@ pub fn invoke_environment_complete(
     handler: Box<CreateWebView2EnvironmentCompletedHandler>,
     environment: cxx::SharedPtr<core::WebView2Environment>,
 ) {
-    (handler.callback)(environment);
+    handler.handle(environment);
 }
 
 type ControllerCompletedCallback = Box<dyn FnOnce(cxx::SharedPtr<core::WebView2Controller>)>;
 
 pub struct CreateWebView2ControllerCompletedHandler {
-    pub callback: ControllerCompletedCallback,
+    callback: ControllerCompletedCallback,
 }
 
 impl CreateWebView2ControllerCompletedHandler {
     pub fn new(callback: ControllerCompletedCallback) -> Self {
         Self { callback }
+    }
+
+    pub fn handle(self, controller: cxx::SharedPtr<core::WebView2Controller>) {
+        (self.callback)(controller);
     }
 }
 
@@ -184,7 +224,7 @@ pub fn invoke_controller_complete(
     handler: Box<CreateWebView2ControllerCompletedHandler>,
     controller: cxx::SharedPtr<core::WebView2Controller>,
 ) {
-    (handler.callback)(controller);
+    handler.handle(controller);
 }
 
 type NavigationCompletedCallback = Box<dyn FnOnce(&core::WebView2)>;
@@ -197,27 +237,85 @@ impl NavigationCompletedHandler {
     pub fn new(callback: NavigationCompletedCallback) -> Self {
         Self { callback }
     }
+
+    pub fn handle(self, webview: &core::WebView2) {
+        (self.callback)(webview);
+    }
 }
 
 pub fn invoke_navigation_complete(
     handler: Box<NavigationCompletedHandler>,
     webview: &core::WebView2,
 ) {
-    (handler.callback)(webview)
+    handler.handle(webview)
+}
+
+type AddScriptToExecuteOnDocumentCreatedCompletedCallback = Box<dyn FnOnce(String)>;
+
+pub struct AddScriptToExecuteOnDocumentCreatedCompletedHandler {
+    callback: ExecuteScriptCompletedCallback,
+}
+
+impl AddScriptToExecuteOnDocumentCreatedCompletedHandler {
+    pub fn new(callback: AddScriptToExecuteOnDocumentCreatedCompletedCallback) -> Self {
+        Self { callback }
+    }
+
+    pub fn handle(self, result: String) {
+        (self.callback)(result);
+    }
+}
+
+pub fn invoke_add_script_on_document_created_complete(
+    handler: Box<AddScriptToExecuteOnDocumentCreatedCompletedHandler>,
+    id: Vec<u16>,
+) {
+    handler.handle(from_utf16(&id));
 }
 
 type ExecuteScriptCompletedCallback = Box<dyn FnOnce(String)>;
 
 pub struct ExecuteScriptCompletedHandler {
-    pub callback: ExecuteScriptCompletedCallback,
+    callback: ExecuteScriptCompletedCallback,
 }
 
 impl ExecuteScriptCompletedHandler {
     pub fn new(callback: ExecuteScriptCompletedCallback) -> Self {
         Self { callback }
     }
+
+    pub fn handle(self, result: String) {
+        (self.callback)(result);
+    }
 }
 
-pub fn invoke_script_complete(handler: Box<ExecuteScriptCompletedHandler>, result: Vec<u16>) {
-    (handler.callback)(from_utf16(&result));
+pub fn invoke_execute_script_complete(
+    handler: Box<ExecuteScriptCompletedHandler>,
+    result: Vec<u16>,
+) {
+    handler.handle(from_utf16(&result));
+}
+
+type WebMessageReceivedCallback = Box<dyn Fn(String, String)>;
+
+pub struct WebMessageReceivedHandler {
+    callback: WebMessageReceivedCallback,
+}
+
+impl WebMessageReceivedHandler {
+    pub fn new(callback: WebMessageReceivedCallback) -> Self {
+        Self { callback }
+    }
+
+    pub fn handle(&self, source: String, message: String) {
+        (self.callback)(source, message);
+    }
+}
+
+pub fn invoke_web_message_received(
+    handler: &WebMessageReceivedHandler,
+    source: Vec<u16>,
+    message: Vec<u16>,
+) {
+    handler.handle(from_utf16(&source), from_utf16(&message));
 }

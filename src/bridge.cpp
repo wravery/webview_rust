@@ -20,23 +20,23 @@ using namespace std::literals;
 
 using SPWSTR = std::unique_ptr<wchar_t[], decltype(&::CoTaskMemFree)>;
 
-std::wstring to_wstring(const rust::Vec<uint16_t> source) noexcept
+std::wstring to_wstring(const rust::Vec<std::uint16_t> source) noexcept
 {
     return {reinterpret_cast<const wchar_t *>(source.data()), source.size()};
 }
 
-std::wstring to_wstring(rust::Slice<const uint16_t> source) noexcept
+std::wstring to_wstring(rust::Slice<const std::uint16_t> source) noexcept
 {
     return {reinterpret_cast<const wchar_t *>(source.data()), source.size()};
 }
 
-rust::Vec<uint16_t> to_vec(std::wstring_view source) noexcept
+rust::Vec<std::uint16_t> to_vec(std::wstring_view source) noexcept
 {
-    rust::Vec<uint16_t> result;
+    rust::Vec<std::uint16_t> result;
 
     result.reserve(source.size());
     std::transform(source.begin(), source.end(), std::back_inserter(result), [](wchar_t ch) {
-        return static_cast<uint16_t>(ch);
+        return static_cast<std::uint16_t>(ch);
     });
 
     return result;
@@ -47,7 +47,7 @@ void throw_failed(std::string_view expression, HRESULT hr)
     std::ostringstream oss;
 
     oss << expression << " failed: 0x"
-        << std::hex << std::setw(8) << std::setfill('0') << static_cast<uint32_t>(hr);
+        << std::hex << std::setw(8) << std::setfill('0') << static_cast<std::uint32_t>(hr);
 
     throw std::runtime_error(oss.str());
 }
@@ -104,13 +104,17 @@ public:
 
     WebView2Settings get_Settings() const;
     void put_Settings(WebView2Settings value) const;
-    void Navigate(rust::Slice<const uint16_t> url, rust::Box<NavigationCompletedHandler> handler, std::shared_ptr<const WebView2> instance);
-    void NavigateToString(rust::Slice<const uint16_t> html_content, rust::Box<NavigationCompletedHandler> handler, std::shared_ptr<const WebView2> instance);
-    void ExecuteScript(rust::Slice<const uint16_t> javascript, rust::Box<ExecuteScriptCompletedHandler> handler) const;
+    void Navigate(rust::Slice<const std::uint16_t> url, rust::Box<NavigationCompletedHandler> handler, std::shared_ptr<const WebView2> instance);
+    void NavigateToString(rust::Slice<const std::uint16_t> html_content, rust::Box<NavigationCompletedHandler> handler, std::shared_ptr<const WebView2> instance);
+    void AddScriptToExecuteOnDocumentCreated(rust::Slice<const std::uint16_t> javascript, rust::Box<AddScriptToExecuteOnDocumentCreatedCompletedHandler> handler);
+    void RemoveScriptToExecuteOnDocumentCreated(rust::Slice<const std::uint16_t> id);
+    void ExecuteScript(rust::Slice<const std::uint16_t> javascript, rust::Box<ExecuteScriptCompletedHandler> handler) const;
     void Reload() const;
-    void PostWebMessage(rust::Slice<const uint16_t> json_message) const;
+    void PostWebMessage(rust::Slice<const std::uint16_t> json_message) const;
+    std::int64_t add_WebMessageReceived(rust::Box<WebMessageReceivedHandler> handler) const;
+    void remove_WebMessageReceived(std::int64_t token) const;
     void Stop() const;
-    rust::Vec<uint16_t> get_DocumentTitle() const;
+    rust::Vec<std::uint16_t> get_DocumentTitle() const;
     void OpenDevToolsWindow() const;
 
 private:
@@ -254,8 +258,7 @@ void WebView2Controller::impl::CheckCreated() const
 }
 
 WebView2::impl::impl(Microsoft::WRL::ComPtr<ICoreWebView2> webview, std::shared_ptr<const WebView2Controller> controller)
-    : m_webview{std::move(webview)}
-    , m_controller{std::move(controller)}
+    : m_webview{std::move(webview)}, m_controller{std::move(controller)}
 {
     AddEventHandlers();
 }
@@ -322,7 +325,7 @@ void WebView2::impl::put_Settings(WebView2Settings value) const
     CHECK_HR(settings->put_IsBuiltInErrorPageEnabled(static_cast<BOOL>(value.is_built_in_error_page_enabled)));
 }
 
-void WebView2::impl::Navigate(rust::Slice<const uint16_t> url, rust::Box<NavigationCompletedHandler> handler, std::shared_ptr<const WebView2> instance)
+void WebView2::impl::Navigate(rust::Slice<const std::uint16_t> url, rust::Box<NavigationCompletedHandler> handler, std::shared_ptr<const WebView2> instance)
 {
     CheckCreated();
 
@@ -332,7 +335,7 @@ void WebView2::impl::Navigate(rust::Slice<const uint16_t> url, rust::Box<Navigat
     CHECK_HR(m_webview->Navigate(to_wstring(url).c_str()));
 }
 
-void WebView2::impl::NavigateToString(rust::Slice<const uint16_t> html_content, rust::Box<NavigationCompletedHandler> handler, std::shared_ptr<const WebView2> instance)
+void WebView2::impl::NavigateToString(rust::Slice<const std::uint16_t> html_content, rust::Box<NavigationCompletedHandler> handler, std::shared_ptr<const WebView2> instance)
 {
     CheckCreated();
 
@@ -342,20 +345,47 @@ void WebView2::impl::NavigateToString(rust::Slice<const uint16_t> html_content, 
     CHECK_HR(m_webview->NavigateToString(to_wstring(html_content).c_str()));
 }
 
-void WebView2::impl::ExecuteScript(rust::Slice<const uint16_t> javascript, rust::Box<ExecuteScriptCompletedHandler> handler) const
+void WebView2::impl::AddScriptToExecuteOnDocumentCreated(rust::Slice<const std::uint16_t> javascript, rust::Box<AddScriptToExecuteOnDocumentCreatedCompletedHandler> handler)
+{
+    CheckCreated();
+
+    auto callback = Microsoft::WRL::Callback<ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler>(
+        [handler = std::move(handler)](HRESULT hr, PCWSTR id) mutable noexcept {
+            rust::Vec<std::uint16_t> result;
+
+            if (SUCCEEDED(hr) && nullptr != id)
+            {
+                result = to_vec(id);
+            }
+
+            invoke_add_script_on_document_created_complete(std::move(handler), std::move(result));
+            return S_OK;
+        });
+
+    CHECK_HR(m_webview->AddScriptToExecuteOnDocumentCreated(to_wstring(javascript).c_str(), callback.Get()));
+}
+
+void WebView2::impl::RemoveScriptToExecuteOnDocumentCreated(rust::Slice<const std::uint16_t> id)
+{
+    CheckCreated();
+
+    CHECK_HR(m_webview->RemoveScriptToExecuteOnDocumentCreated(to_wstring(id).c_str()));
+}
+
+void WebView2::impl::ExecuteScript(rust::Slice<const std::uint16_t> javascript, rust::Box<ExecuteScriptCompletedHandler> handler) const
 {
     CheckCreated();
 
     auto callback = Microsoft::WRL::Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
         [handler = std::move(handler)](HRESULT hr, PCWSTR resultObjectAsJson) mutable noexcept {
-            rust::Vec<uint16_t> result;
+            rust::Vec<std::uint16_t> result;
 
             if (SUCCEEDED(hr) && nullptr != resultObjectAsJson)
             {
                 result = to_vec(resultObjectAsJson);
             }
 
-            invoke_script_complete(std::move(handler), std::move(result));
+            invoke_execute_script_complete(std::move(handler), std::move(result));
             return S_OK;
         });
 
@@ -369,11 +399,59 @@ void WebView2::impl::Reload() const
     CHECK_HR(m_webview->Reload());
 }
 
-void WebView2::impl::PostWebMessage(rust::Slice<const uint16_t> json_message) const
+void WebView2::impl::PostWebMessage(rust::Slice<const std::uint16_t> json_message) const
 {
     CheckCreated();
 
     CHECK_HR(m_webview->PostWebMessageAsJson(to_wstring(json_message).c_str()));
+}
+
+std::int64_t WebView2::impl::add_WebMessageReceived(rust::Box<WebMessageReceivedHandler> handler) const
+{
+    CheckCreated();
+
+    auto callback = Microsoft::WRL::Callback<ICoreWebView2WebMessageReceivedEventHandler>(
+        [handler = std::move(handler)](ICoreWebView2 *, ICoreWebView2WebMessageReceivedEventArgs *args) mutable noexcept {
+            rust::Vec<std::uint16_t> source;
+            rust::Vec<std::uint16_t> message;
+
+            if (nullptr != args)
+            {
+                PWSTR sourceArg = nullptr;
+
+                if (SUCCEEDED(args->get_Source(&sourceArg)))
+                {
+                    SPWSTR cleanup { sourceArg, ::CoTaskMemFree };
+
+                    source = to_vec(sourceArg);
+                }
+                
+                PWSTR messageArg = nullptr;
+
+                if (SUCCEEDED(args->get_WebMessageAsJson(&messageArg)))
+                {
+                    SPWSTR cleanup { messageArg, ::CoTaskMemFree };
+
+                    message = to_vec(messageArg);
+                }
+            }
+
+            invoke_web_message_received(*handler, std::move(source), std::move(message));
+            return S_OK;
+        });
+
+    EventRegistrationToken token{};
+
+    CHECK_HR(m_webview->add_WebMessageReceived(callback.Get(), &token));
+
+    return token.value;
+}
+
+void WebView2::impl::remove_WebMessageReceived(std::int64_t token) const
+{
+    CheckCreated();
+
+    CHECK_HR(m_webview->remove_WebMessageReceived({token}));
 }
 
 void WebView2::impl::Stop() const
@@ -383,7 +461,7 @@ void WebView2::impl::Stop() const
     CHECK_HR(m_webview->Stop());
 }
 
-rust::Vec<uint16_t> WebView2::impl::get_DocumentTitle() const
+rust::Vec<std::uint16_t> WebView2::impl::get_DocumentTitle() const
 {
     CheckCreated();
 
@@ -459,8 +537,8 @@ void new_webview2_environment(rust::Box<CreateWebView2EnvironmentCompletedHandle
     CHECK_HR(CreateCoreWebView2Environment(callback.Get()));
 }
 
-void new_webview2_environment_with_options(rust::Slice<const uint16_t> browser_executable_folder,
-                                           rust::Slice<const uint16_t> user_data_folder,
+void new_webview2_environment_with_options(rust::Slice<const std::uint16_t> browser_executable_folder,
+                                           rust::Slice<const std::uint16_t> user_data_folder,
                                            const WebView2EnvironmentOptions &options,
                                            rust::Box<CreateWebView2EnvironmentCompletedHandler> handler)
 {
@@ -508,7 +586,7 @@ void new_webview2_environment_with_options(rust::Slice<const uint16_t> browser_e
                                                       callback.Get()));
 }
 
-rust::Vec<uint16_t> get_available_webview2_browser_version_string(rust::Slice<const uint16_t> browser_executable_folder)
+rust::Vec<std::uint16_t> get_available_webview2_browser_version_string(rust::Slice<const std::uint16_t> browser_executable_folder)
 {
     PWSTR version = nullptr;
 
@@ -519,7 +597,7 @@ rust::Vec<uint16_t> get_available_webview2_browser_version_string(rust::Slice<co
     return to_vec(version);
 }
 
-int8_t compare_browser_versions(rust::Slice<const uint16_t> version1, rust::Slice<const uint16_t> version2)
+int8_t compare_browser_versions(rust::Slice<const std::uint16_t> version1, rust::Slice<const std::uint16_t> version2)
 {
     int result = 0;
 
@@ -613,19 +691,31 @@ WebView2Settings WebView2::get_settings() const
     return m_pimpl->get_Settings();
 }
 
-const WebView2 &WebView2::navigate(rust::Slice<const uint16_t> url, rust::Box<NavigationCompletedHandler> handler) const
+const WebView2 &WebView2::navigate(rust::Slice<const std::uint16_t> url, rust::Box<NavigationCompletedHandler> handler) const
 {
     m_pimpl->Navigate(url, std::move(handler), shared_from_this());
     return *this;
 }
 
-const WebView2 &WebView2::navigate_to_string(rust::Slice<const uint16_t> html_content, rust::Box<NavigationCompletedHandler> handler) const
+const WebView2 &WebView2::navigate_to_string(rust::Slice<const std::uint16_t> html_content, rust::Box<NavigationCompletedHandler> handler) const
 {
     m_pimpl->NavigateToString(html_content, std::move(handler), shared_from_this());
     return *this;
 }
 
-const WebView2 &WebView2::execute_script(rust::Slice<const uint16_t> javascript, rust::Box<ExecuteScriptCompletedHandler> handler) const
+const WebView2 &WebView2::add_script_to_execute_on_document_created(rust::Slice<const std::uint16_t> javascript, rust::Box<AddScriptToExecuteOnDocumentCreatedCompletedHandler> handler) const
+{
+    m_pimpl->AddScriptToExecuteOnDocumentCreated(javascript, std::move(handler));
+    return *this;
+}
+
+const WebView2 &WebView2::remove_script_to_execute_on_document_created(rust::Slice<const std::uint16_t> id) const
+{
+    m_pimpl->RemoveScriptToExecuteOnDocumentCreated(id);
+    return *this;
+}
+
+const WebView2 &WebView2::execute_script(rust::Slice<const std::uint16_t> javascript, rust::Box<ExecuteScriptCompletedHandler> handler) const
 {
     m_pimpl->ExecuteScript(javascript, std::move(handler));
     return *this;
@@ -637,9 +727,20 @@ const WebView2 &WebView2::reload() const
     return *this;
 }
 
-const WebView2 &WebView2::post_web_message(rust::Slice<const uint16_t> json_message) const
+const WebView2 &WebView2::post_web_message(rust::Slice<const std::uint16_t> json_message) const
 {
     m_pimpl->PostWebMessage(json_message);
+    return *this;
+}
+
+std::int64_t WebView2::add_web_message_received(rust::Box<WebMessageReceivedHandler> handler) const
+{
+    return m_pimpl->add_WebMessageReceived(std::move(handler));
+}
+
+const WebView2 &WebView2::remove_web_message_received(std::int64_t token) const
+{
+    m_pimpl->remove_WebMessageReceived(token);
     return *this;
 }
 
@@ -649,7 +750,7 @@ const WebView2 &WebView2::stop() const
     return *this;
 }
 
-rust::Vec<uint16_t> WebView2::get_document_title() const
+rust::Vec<std::uint16_t> WebView2::get_document_title() const
 {
     return m_pimpl->get_DocumentTitle();
 }
