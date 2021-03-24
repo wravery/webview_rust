@@ -5,7 +5,8 @@ fn controller_visible() {
     common::initialize_com();
 
     {
-        let controller = common::create_test_controller();
+        let frame = common::create_test_window("controller_visible");
+        let controller = common::create_test_controller(&frame);
         assert!(!controller.get_visible().expect("call get_visible"));
         assert!(controller
             .visible(true)

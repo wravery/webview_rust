@@ -5,7 +5,8 @@ fn webview_reload() {
     common::initialize_com();
 
     {
-        let webview = common::navigate_to_test_html();
+        let frame = common::create_test_window("webview_reload");
+        let webview = common::navigate_to_test_html(&frame);
         webview.reload().expect("call reload");
     }
 

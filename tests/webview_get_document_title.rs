@@ -7,7 +7,8 @@ fn webview_get_document_title() {
     common::initialize_com();
 
     {
-        let webview = common::navigate_to_test_html();
+        let frame = common::create_test_window("webview_navigate_to_string");
+        let webview = common::navigate_to_test_html(&frame);
         let result = webview
             .get_document_title()
             .expect("call get_document_title");

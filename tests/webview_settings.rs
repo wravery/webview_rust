@@ -7,7 +7,8 @@ fn webview_settings() {
     common::initialize_com();
 
     {
-        let webview = common::create_test_webview();
+        let frame = common::create_test_window("webview_settings");
+        let webview = common::create_test_webview(&frame);
         let settings = webview.get_settings().expect("call get_settings");
         // All of the settings start out enabled by default.
         assert!(settings.is_script_enabled);

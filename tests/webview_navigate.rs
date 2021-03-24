@@ -16,7 +16,8 @@ fn webview_navigate() {
         .expect("spawn_local_with_handle");
 
     {
-        let webview = common::create_test_webview();
+        let frame = common::create_test_window("webview_navigate");
+        let webview = common::create_test_webview(&frame);
         let url = bridge::to_utf16("https://aka.ms/webview2");
         webview
             .navigate(

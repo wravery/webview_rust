@@ -5,7 +5,8 @@ fn controller_close() {
     common::initialize_com();
 
     {
-        let controller = common::create_test_controller();
+        let frame = common::create_test_window("controller_close");
+        let controller = common::create_test_controller(&frame);
         controller.close().expect("call close");
         controller.close().expect_err("second close");
     }

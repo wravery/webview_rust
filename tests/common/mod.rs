@@ -126,7 +126,8 @@ fn register_window_class() -> Vec<u16> {
     }
 }
 
-fn create_test_window(name: &str) -> HWND {
+#[allow(dead_code)]
+pub fn create_test_window(name: &str) -> HWND {
     let mut class_name = register_window_class();
 
     let mut window_name = bridge::to_utf16(name);
@@ -150,9 +151,8 @@ fn create_test_window(name: &str) -> HWND {
     }
 }
 
-pub fn create_test_controller() -> cxx::SharedPtr<core::WebView2Controller> {
+pub fn create_test_controller(frame: &HWND) -> cxx::SharedPtr<core::WebView2Controller> {
     let environment = create_test_environment();
-    let frame = create_test_window("create_webview2_controller");
     let (tx, rx) = oneshot::channel();
     let mut pool = executor::LocalPool::new();
     let spawner = pool.spawner();
@@ -180,8 +180,8 @@ pub fn create_test_controller() -> cxx::SharedPtr<core::WebView2Controller> {
     controller
 }
 
-pub fn create_test_webview() -> cxx::SharedPtr<core::WebView2> {
-    let webview = create_test_controller()
+pub fn create_test_webview(frame: &HWND) -> cxx::SharedPtr<core::WebView2> {
+    let webview = create_test_controller(frame)
         .get_webview()
         .expect("call get_webview");
     assert!(!webview.is_null());
@@ -190,8 +190,8 @@ pub fn create_test_webview() -> cxx::SharedPtr<core::WebView2> {
 }
 
 #[allow(dead_code)]
-pub fn navigate_to_test_html() -> cxx::SharedPtr<core::WebView2> {
-    let webview = create_test_webview();
+pub fn navigate_to_test_html(frame: &HWND) -> cxx::SharedPtr<core::WebView2> {
+    let webview = create_test_webview(frame);
     let (tx, rx) = oneshot::channel();
     let mut pool = executor::LocalPool::new();
     let spawner = pool.spawner();

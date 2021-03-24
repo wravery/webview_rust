@@ -7,7 +7,8 @@ fn webview_post_web_message() {
     common::initialize_com();
 
     {
-        let webview = common::navigate_to_test_html();
+        let frame = common::create_test_window("webview_post_web_message");
+        let webview = common::navigate_to_test_html(&frame);
         common::execute_test_script(
             &webview,
             r#"window.testMessage = null;

@@ -5,7 +5,8 @@ fn webview_stop() {
     common::initialize_com();
 
     {
-        let webview = common::navigate_to_test_html();
+        let frame = common::create_test_window("webview_stop");
+        let webview = common::navigate_to_test_html(&frame);
         webview.stop().expect("call stop");
     }
 

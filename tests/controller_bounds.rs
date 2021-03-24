@@ -7,7 +7,8 @@ fn controller_bounds() {
     common::initialize_com();
 
     {
-        let controller = common::create_test_controller();
+        let frame = common::create_test_window("controller_bounds");
+        let controller = common::create_test_controller(&frame);
         let bounds = controller.get_bounds().expect("call get_bounds");
         // The bounds default to the null rect.
         assert_eq!(bounds.left, 0);
