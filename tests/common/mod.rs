@@ -205,8 +205,7 @@ pub fn create_test_webview(frame: &TestWindow) -> cxx::SharedPtr<core::WebView2>
 }
 
 #[allow(dead_code)]
-pub fn navigate_to_test_html(frame: &TestWindow) -> cxx::SharedPtr<core::WebView2> {
-    let webview = create_test_webview(frame);
+pub fn navigate_test_webview(webview: &core::WebView2) {
     let (tx, rx) = oneshot::channel();
     let mut pool = executor::LocalPool::new();
     let spawner = pool.spawner();
@@ -239,6 +238,12 @@ pub fn navigate_to_test_html(frame: &TestWindow) -> cxx::SharedPtr<core::WebView
     run_message_loop(&mut pool);
 
     pool.run_until(output).expect("completed the navigation");
+}
+
+#[allow(dead_code)]
+pub fn navigate_to_test_html(frame: &TestWindow) -> cxx::SharedPtr<core::WebView2> {
+    let webview = create_test_webview(frame);
+    navigate_test_webview(&webview);
 
     webview
 }
