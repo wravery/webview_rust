@@ -231,6 +231,12 @@ impl Webview {
     }
 
     fn create_frame() -> FrameWindow {
+        unsafe {
+            let _code = hi_dpi::SetProcessDpiAwareness(
+                PROCESS_DPI_AWARENESS::PROCESS_PER_MONITOR_DPI_AWARE,
+            );
+        }
+
         extern "system" fn window_proc(
             h_wnd: HWND,
             msg: u32,
@@ -325,8 +331,8 @@ impl Webview {
                     WINDOWS_STYLE::WS_OVERLAPPED | WINDOWS_STYLE::WS_VISIBLE,
                     windows_and_messaging::CW_USEDEFAULT,
                     windows_and_messaging::CW_USEDEFAULT,
-                    windows_and_messaging::CW_USEDEFAULT,
-                    windows_and_messaging::CW_USEDEFAULT,
+                    640,
+                    480,
                     HWND(0),
                     HMENU(0),
                     HINSTANCE(system_services::GetModuleHandleW(PWSTR(0 as *mut _))),
@@ -475,9 +481,6 @@ impl Webview {
             unsafe {
                 Webview::set_window_webview(h_wnd, webview);
 
-                let _code = hi_dpi::SetProcessDpiAwareness(
-                    PROCESS_DPI_AWARENESS::PROCESS_PER_MONITOR_DPI_AWARE,
-                );
                 windows_and_messaging::ShowWindow(h_wnd, SHOW_WINDOW_CMD::SW_SHOW);
                 gdi::UpdateWindow(h_wnd);
                 keyboard_and_mouse_input::SetFocus(h_wnd);
