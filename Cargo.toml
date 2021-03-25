@@ -24,7 +24,6 @@ name = "sample"
 path = "examples/sample.rs"
 
 [dependencies]
-webview-official-sys = { path = "webview-official-sys", version = "0.1" }
 bindings = { path = "bindings" }
 cxx = "1.0.32"
 futures = "0.3.13"
