@@ -1,6 +1,8 @@
 use webview_official::{SizeHint, WebviewBuilder};
 
-fn main() {
+use windows::*;
+
+fn main() -> Result<()> {
     let mut webview = WebviewBuilder::new()
         .debug(true)
         .title("TEST")
@@ -14,12 +16,13 @@ fn main() {
             println!("Hello World");
         })
         .url("https://google.com")
-        .build();
+        .build()?;
 
     let w = webview.clone();
     webview.bind("xxx", move |seq, req| {
         println!("xxx called with {}", req);
         w.r#return(seq, 0, "{ result: 'We always knew it!' }");
-    });
-    webview.run();
+    })?;
+    webview.run()?;
+    Ok(())
 }

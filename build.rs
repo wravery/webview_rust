@@ -27,7 +27,7 @@ mod webview2_nuget {
     use std::process::Command;
 
     const WEBVIEW2_NAME: &str = "Microsoft.Web.WebView2";
-    const WEBVIEW2_VERSION: &str = "1.0.774.44";
+    const WEBVIEW2_VERSION: &str = "1.0.824-prerelease";
     const WEBVIEW2_DLL: &str = "WebView2Loader.dll";
 
     pub fn install() -> io::Result<PathBuf> {

@@ -1,7 +1,8 @@
 use std::{thread, time};
 use webview_official::{SizeHint, WebviewBuilder};
+use windows::*;
 
-fn main() {
+fn main() -> Result<()> {
     let webview = WebviewBuilder::new()
         .debug(true)
         .title("TEST")
@@ -9,7 +10,7 @@ fn main() {
         .height(600)
         .resize(SizeHint::NONE)
         .url("https://google.com")
-        .build();
+        .build()?;
 
     let webview_ = webview.clone();
 
@@ -18,5 +19,5 @@ fn main() {
         webview_.terminate();
     });
 
-    webview.run();
+    webview.run()
 }

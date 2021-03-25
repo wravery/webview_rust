@@ -1,5 +1,7 @@
 use crate::{SizeHint, Webview, Window};
 
+use windows::*;
+
 #[derive(Default)]
 pub struct WebviewBuilder<'a> {
     title: Option<&'a str>,
@@ -70,14 +72,14 @@ impl<'a> WebviewBuilder<'a> {
         self
     }
 
-    pub fn build(self) -> Webview {
-        let w = Webview::create(self.debug, self.window);
+    pub fn build(self) -> Result<Webview> {
+        let w = Webview::create(self.debug, self.window)?;
         if let Some(title) = self.title {
             w.set_title(title);
         }
 
         if let Some(init) = self.init {
-            w.init(init);
+            w.init(init)?;
         }
 
         if let Some(url) = self.url {
@@ -88,12 +90,12 @@ impl<'a> WebviewBuilder<'a> {
             w.eval(eval);
         }
 
-        w.set_size(self.size.0 as i32, self.size.1 as i32, self.size.2);
+        w.set_size(self.size.0 as i32, self.size.1 as i32, self.size.2)?;
 
         if let Some(f) = self.dispatch {
             w.dispatch(f);
         }
 
-        w
+        Ok(w)
     }
 }
