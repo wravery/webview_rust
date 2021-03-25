@@ -8,8 +8,8 @@ pub struct WebviewBuilder<'a> {
     eval: Option<&'a str>,
     size: (usize, usize, SizeHint),
     debug: bool,
-    dispatch: Option<Box<dyn FnOnce(&mut Webview) + Send + 'static>>,
-    window: Option<&'a mut Window>,
+    dispatch: Option<Box<dyn FnOnce(Webview) + Send + 'static>>,
+    window: Option<Window>,
 }
 
 impl<'a> WebviewBuilder<'a> {
@@ -22,7 +22,7 @@ impl<'a> WebviewBuilder<'a> {
         self
     }
 
-    pub fn window(mut self, window: &'a mut Window) -> Self {
+    pub fn window(mut self, window: Window) -> Self {
         self.window = Some(window);
         self
     }
@@ -64,20 +64,14 @@ impl<'a> WebviewBuilder<'a> {
 
     pub fn dispatch<F>(mut self, f: F) -> Self
     where
-        F: FnOnce(&mut Webview) + Send + 'static,
+        F: FnOnce(Webview) + Send + 'static,
     {
         self.dispatch = Some(Box::new(f));
         self
     }
 
     pub fn build(self) -> Webview {
-        let mut w = Webview::create(
-            self.debug,
-            match self.window {
-                Some(&mut w) => Some(w),
-                None => None,
-            },
-        );
+        let mut w = Webview::create(self.debug, self.window);
         if let Some(title) = self.title {
             w.set_title(title);
         }

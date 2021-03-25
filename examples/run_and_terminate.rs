@@ -2,7 +2,7 @@ use std::{thread, time};
 use webview_official::{SizeHint, WebviewBuilder};
 
 fn main() {
-    let mut webview = WebviewBuilder::new()
+    let webview = WebviewBuilder::new()
         .debug(true)
         .title("TEST")
         .width(800)
@@ -11,7 +11,7 @@ fn main() {
         .url("https://google.com")
         .build();
 
-    let mut webview_ = webview.clone();
+    let webview_ = webview.clone();
 
     thread::spawn(move || {
         thread::sleep(time::Duration::from_secs(5));

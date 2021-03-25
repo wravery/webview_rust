@@ -1,6 +1,6 @@
 #[cxx::bridge]
 pub mod core {
-    #[derive(Debug)]
+    #[derive(Debug, Default)]
     struct WebView2EnvironmentOptions {
         aditional_browser_arguments: Vec<u16>,
         language: Vec<u16>,
@@ -8,7 +8,7 @@ pub mod core {
         allow_single_sign_on_using_os_primary_account: bool,
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Default)]
     struct WebView2ControllerBounds {
         left: i32,
         top: i32,
@@ -16,7 +16,7 @@ pub mod core {
         bottom: i32,
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Default)]
     struct WebView2Settings {
         is_script_enabled: bool,
         is_web_message_enabled: bool,
