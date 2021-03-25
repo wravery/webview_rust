@@ -49,9 +49,9 @@ struct WindowSize {
 #[derive(Clone)]
 pub struct FrameWindow {
     window: Arc<Window>,
-    size: Arc<WindowSize>,
-    max_size: Arc<Option<WindowSize>>,
-    min_size: Arc<Option<WindowSize>>,
+    size: Arc<Mutex<WindowSize>>,
+    max_size: Arc<Mutex<Option<WindowSize>>>,
+    min_size: Arc<Mutex<Option<WindowSize>>>,
 }
 
 impl Drop for FrameWindow {
@@ -74,7 +74,7 @@ pub struct Webview {
     bindings: Arc<Mutex<HashMap<String, Box<dyn FnMut(&str, &str)>>>>,
     frame: Option<FrameWindow>,
     parent: Arc<Window>,
-    url: String,
+    url: Arc<Mutex<String>>,
 }
 
 unsafe impl Send for Webview {}
@@ -252,9 +252,9 @@ impl Webview {
                 }
             };
 
-            let mut frame = webview
+            let frame = webview
                 .frame
-                .clone()
+                .as_ref()
                 .expect("should only be called for owned windows");
 
             match msg {
@@ -269,7 +269,7 @@ impl Webview {
                             bottom: size.height,
                         })
                         .expect("call bounds");
-                    frame.size = Arc::new(size);
+                    *frame.size.lock().expect("lock size") = size;
                     LRESULT(0)
                 }
 
@@ -286,23 +286,29 @@ impl Webview {
                 }
 
                 windows_and_messaging::WM_GETMINMAXINFO => {
-                    let mut min_max_info = MINMAXINFO::default();
+                    if l_param.0 != 0 {
+                        let min_max_info: *mut MINMAXINFO = l_param.0 as *mut _;
 
-                    if let Some(max) = frame.max_size.as_ref() {
-                        let max_size = POINT {
-                            x: max.width,
-                            y: max.height,
-                        };
+                        if let Some(max) = frame.max_size.lock().expect("lock max_size").as_ref() {
+                            let max_size = POINT {
+                                x: max.width,
+                                y: max.height,
+                            };
 
-                        min_max_info.pt_max_track_size = max_size;
-                        min_max_info.pt_max_size = max_size;
-                    }
+                            unsafe {
+                                (*min_max_info).pt_max_size = max_size;
+                                (*min_max_info).pt_max_track_size = max_size;
+                            }
+                        }
 
-                    if let Some(min) = frame.min_size.as_ref() {
-                        min_max_info.pt_min_track_size = POINT {
-                            x: min.width,
-                            y: min.height,
-                        };
+                        if let Some(min) = frame.min_size.lock().expect("lock max_size").as_ref() {
+                            unsafe {
+                                (*min_max_info).pt_min_track_size = POINT {
+                                    x: min.width,
+                                    y: min.height,
+                                };
+                            }
+                        }
                     }
 
                     LRESULT(0)
@@ -328,7 +334,7 @@ impl Webview {
                     WINDOWS_EX_STYLE(0),
                     PWSTR(class_name.as_mut_ptr()),
                     PWSTR(class_name.as_mut_ptr()),
-                    WINDOWS_STYLE::WS_OVERLAPPED,
+                    WINDOWS_STYLE::WS_OVERLAPPEDWINDOW,
                     windows_and_messaging::CW_USEDEFAULT,
                     windows_and_messaging::CW_USEDEFAULT,
                     640,
@@ -343,12 +349,12 @@ impl Webview {
 
         FrameWindow {
             window: Arc::new(Window(h_wnd)),
-            size: Arc::new(WindowSize {
+            size: Arc::new(Mutex::new(WindowSize {
                 width: 0,
                 height: 0,
-            }),
-            min_size: Arc::new(None),
-            max_size: Arc::new(None),
+            })),
+            min_size: Arc::new(Mutex::new(None)),
+            max_size: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -359,7 +365,7 @@ impl Webview {
             assert!(com::CoInitialize(0 as *mut _).is_ok());
         });
 
-        let mut frame = match window {
+        let frame = match window {
             Some(Window(_)) => None,
             None => Some(Webview::create_frame()),
         };
@@ -434,14 +440,12 @@ impl Webview {
         let token = webview
             .add_web_message_received(Box::new(bridge::WebMessageReceivedHandler::new(Box::new(
                 move |_source, message| {
-                    if let Ok(message) = serde_json::from_str::<String>(&message) {
-                        if let Ok(value) = serde_json::from_str::<InvokeMessage>(&message) {
-                            let mut bindings = bindings_ref.lock().expect("lock bindings");
-                            if let Some(f) = bindings.get_mut(&value.method) {
-                                let id = serde_json::to_string(&value.id).unwrap();
-                                let params = serde_json::to_string(&value.params).unwrap();
-                                (*f)(&id, &params);
-                            }
+                    if let Ok(value) = serde_json::from_str::<InvokeMessage>(&message) {
+                        let mut bindings = bindings_ref.lock().expect("lock bindings");
+                        if let Some(f) = bindings.get_mut(&value.method) {
+                            let id = serde_json::to_string(&value.id).unwrap();
+                            let params = serde_json::to_string(&value.params).unwrap();
+                            (*f)(&id, &params);
                         }
                     }
                 },
@@ -457,8 +461,8 @@ impl Webview {
             webview.settings(settings).expect("call settings");
         }
 
-        if let Some(frame) = frame.as_mut() {
-            frame.size = Arc::new(size);
+        if let Some(frame) = frame.as_ref() {
+            *frame.size.lock().expect("lock size") = size;
         }
 
         let (tx, rx) = mpsc::channel();
@@ -475,7 +479,7 @@ impl Webview {
             bindings,
             frame,
             parent: Arc::new(parent),
-            url: String::new(),
+            url: Arc::new(Mutex::new(String::new())),
         };
 
         // Inject the invoke handler.
@@ -490,7 +494,7 @@ impl Webview {
 
     pub fn run(&self) {
         let webview = self.controller.get_webview().expect("call get_webview");
-        let url = bridge::to_utf16(&self.url);
+        let url = bridge::to_utf16(self.url.lock().expect("lock url").as_ref());
         let (tx, rx) = oneshot::channel();
         let context = Box::new(MessageLoopCompletedContext::new(tx));
         let mut pool = executor::LocalPool::new();
@@ -499,20 +503,22 @@ impl Webview {
             .spawn_local_with_handle(rx)
             .expect("spawn_local_with_handle");
 
-        webview
-            .navigate(
-                &url,
-                Box::new(bridge::NavigationCompletedHandler::new(Box::new(
-                    |_webview| {
-                        context.send(());
-                    },
-                ))),
-            )
-            .expect("call navigate");
+        if url.len() > 0 {
+            webview
+                .navigate(
+                    &url,
+                    Box::new(bridge::NavigationCompletedHandler::new(Box::new(
+                        |_webview| {
+                            context.send(());
+                        },
+                    ))),
+                )
+                .expect("call navigate");
 
-        Webview::run_one(&mut pool);
+            Webview::run_one(&mut pool);
 
-        pool.run_until(output).expect("completed the navigation");
+            pool.run_until(output).expect("completed the navigation");
+        }
 
         if let Some(frame) = self.frame.as_ref() {
             let h_wnd = frame.window.0;
@@ -573,17 +579,19 @@ impl Webview {
         }
     }
 
-    pub fn set_size(&mut self, width: i32, height: i32, hints: SizeHint) {
-        match self.frame.as_mut() {
+    pub fn set_size(&self, width: i32, height: i32, hints: SizeHint) {
+        match self.frame.as_ref() {
             Some(frame) => match hints {
                 SizeHint::MIN => {
-                    frame.min_size = Arc::new(Some(WindowSize { width, height }));
+                    *frame.min_size.lock().expect("lock min_size") =
+                        Some(WindowSize { width, height });
                 }
                 SizeHint::MAX => {
-                    frame.max_size = Arc::new(Some(WindowSize { width, height }));
+                    *frame.max_size.lock().expect("lock max_size") =
+                        Some(WindowSize { width, height });
                 }
                 _ => {
-                    frame.size = Arc::new(WindowSize { width, height });
+                    *frame.size.lock().expect("lock size") = WindowSize { width, height };
                     self.controller
                         .bounds(core::WebView2ControllerBounds {
                             left: 0,
@@ -616,8 +624,8 @@ impl Webview {
         self.parent.clone()
     }
 
-    pub fn navigate(&mut self, url: &str) {
-        self.url = url.to_string();
+    pub fn navigate(&self, url: &str) {
+        *self.url.lock().expect("lock url") = url.to_string();
     }
 
     pub fn init(&self, js: &str) {
@@ -718,11 +726,11 @@ impl Webview {
                             reject: reject,
                         };
                     });
-                    window.external.invoke(JSON.stringify({
+                    window.external.invoke({
                         id: seq,
                         method: name,
                         params: Array.prototype.slice.call(arguments),
-                    }));
+                    });
                     return promise;
                 }
             })()"#;

@@ -8,16 +8,17 @@ fn main() {
         .height(768)
         .resize(SizeHint::NONE)
         .init("window.x = 42")
-        .dispatch(|mut w| {
+        .dispatch(|w| {
+            w.eval("console.log('The anwser is ' + window.x);");
             w.set_size(800, 600, SizeHint::MIN);
             println!("Hello World");
         })
         .url("https://google.com")
         .build();
 
-    webview.eval("console.log('The anwser is ' + window.x);");
     let w = webview.clone();
-    webview.bind("xxx", move |seq, _req| {
+    webview.bind("xxx", move |seq, req| {
+        println!("xxx called with {}", req);
         w.r#return(seq, 0, "{ result: 'We always knew it!' }");
     });
     webview.run();
