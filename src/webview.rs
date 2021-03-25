@@ -6,13 +6,18 @@ use std::{
 
 use futures::{channel::oneshot, executor, task::LocalSpawnExt};
 
+use serde::Deserialize;
+use serde_json::Value;
+
 use super::bridge::{self, core};
 use bindings::windows::win32::{
     debug,
     display_devices::{POINT, RECT},
-    gdi, hi_dpi, keyboard_and_mouse_input,
+    gdi,
+    hi_dpi::{self, PROCESS_DPI_AWARENESS},
+    keyboard_and_mouse_input,
     menus_and_resources::HMENU,
-    system_services::{self, DPI_AWARENESS_CONTEXT, HINSTANCE, LRESULT, PWSTR},
+    system_services::{self, HINSTANCE, LRESULT, PWSTR},
     windows_and_messaging::{
         self, SetWindowLong_nIndex, HWND, LPARAM, MINMAXINFO, SHOW_WINDOW_CMD, WINDOWS_EX_STYLE,
         WINDOWS_STYLE, WNDCLASSW, WPARAM,
@@ -65,6 +70,7 @@ pub struct Webview {
     tx: mpsc::Sender<Box<dyn FnOnce(Webview) + Send>>,
     rx: Arc<mpsc::Receiver<Box<dyn FnOnce(Webview) + Send>>>,
     thread_id: u32,
+    token: i64,
     bindings: Arc<Mutex<HashMap<String, Box<dyn FnMut(&str, &str)>>>>,
     frame: Option<FrameWindow>,
     parent: Arc<Window>,
@@ -101,6 +107,13 @@ impl<T> MessageLoopCompletedContext<T> {
         let result = self.0.send(value);
         assert!(result.is_ok(), "send the value");
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct InvokeMessage {
+    id: u64,
+    method: String,
+    params: Vec<Value>,
 }
 
 impl Webview {
@@ -402,12 +415,32 @@ impl Webview {
             .visible(true)
             .expect("call visible");
 
-        if debug {
-            let webview = controller.get_webview().expect("call get_webview");
+        let webview = controller.get_webview().expect("call get_webview");
+        let bindings: Arc<Mutex<HashMap<String, Box<dyn FnMut(&str, &str)>>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+        let bindings_ref = bindings.clone();
+        let token = webview
+            .add_web_message_received(Box::new(bridge::WebMessageReceivedHandler::new(Box::new(
+                move |_source, message| {
+                    if let Ok(message) = serde_json::from_str::<String>(&message) {
+                        if let Ok(value) = serde_json::from_str::<InvokeMessage>(&message) {
+                            let mut bindings = bindings_ref.lock().expect("lock bindings");
+                            if let Some(f) = bindings.get_mut(&value.method) {
+                                let id = serde_json::to_string(&value.id).unwrap();
+                                let params = serde_json::to_string(&value.params).unwrap();
+                                (*f)(&id, &params);
+                            }
+                        }
+                    }
+                },
+            ))))
+            .expect("call add_web_message_received");
+
+        if !debug {
             let settings = core::WebView2Settings {
-                are_dev_tools_enabled: true,
-                are_default_context_menus_enabled: true,
-                ..core::WebView2Settings::default()
+                are_dev_tools_enabled: false,
+                are_default_context_menus_enabled: false,
+                ..webview.get_settings().expect("call get_settings")
             };
             webview.settings(settings).expect("call settings");
         }
@@ -426,7 +459,8 @@ impl Webview {
             tx,
             rx,
             thread_id,
-            bindings: Arc::new(Mutex::new(HashMap::new())),
+            token,
+            bindings,
             frame,
             parent: Arc::new(parent),
             url: String::new(),
@@ -441,7 +475,9 @@ impl Webview {
             unsafe {
                 Webview::set_window_webview(h_wnd, webview);
 
-                hi_dpi::SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT(-3));
+                let _code = hi_dpi::SetProcessDpiAwareness(
+                    PROCESS_DPI_AWARENESS::PROCESS_PER_MONITOR_DPI_AWARE,
+                );
                 windows_and_messaging::ShowWindow(h_wnd, SHOW_WINDOW_CMD::SW_SHOW);
                 gdi::UpdateWindow(h_wnd);
                 keyboard_and_mouse_input::SetFocus(h_wnd);
@@ -476,7 +512,6 @@ impl Webview {
         Webview::run_one(&mut pool);
 
         pool.run_until(output).expect("completed the navigation");
-        println!("Navigation complete");
 
         let mut msg = windows_and_messaging::MSG::default();
         let h_wnd = windows_and_messaging::HWND::default();
@@ -576,8 +611,6 @@ impl Webview {
     }
 
     pub fn init(&self, js: &str) {
-        println!("Installing init script: {}", js);
-
         let js = bridge::to_utf16(js);
         let webview = self.controller.get_webview().expect("call get_webview");
 
@@ -608,8 +641,6 @@ impl Webview {
     }
 
     pub fn eval(&self, js: &str) {
-        println!("Evaluating script: {}", js);
-
         let js = bridge::to_utf16(js);
         let webview = self.controller.get_webview().expect("call get_webview");
 

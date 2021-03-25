@@ -16,7 +16,7 @@ pub mod core {
         bottom: i32,
     }
 
-    #[derive(Debug, Default)]
+    #[derive(Debug)]
     struct WebView2Settings {
         is_script_enabled: bool,
         is_web_message_enabled: bool,
