@@ -12,7 +12,7 @@
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/target/debug",
-            "environment": [],
+            "environment": [{"name":"RUST_BACKTRACE", "value":"1"}],
             "console": "externalTerminal"
         }
     ]

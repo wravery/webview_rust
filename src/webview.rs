@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     mem,
-    sync::{mpsc, Arc, Mutex},
+    sync::{mpsc, Arc, Mutex, Once},
 };
 
 use futures::{channel::oneshot, executor, task::LocalSpawnExt};
@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use super::bridge::{self, core};
 use bindings::windows::win32::{
-    debug,
+    com, debug,
     display_devices::{POINT, RECT},
     gdi,
     hi_dpi::{self, PROCESS_DPI_AWARENESS},
@@ -328,7 +328,7 @@ impl Webview {
                     WINDOWS_EX_STYLE(0),
                     PWSTR(class_name.as_mut_ptr()),
                     PWSTR(class_name.as_mut_ptr()),
-                    WINDOWS_STYLE::WS_OVERLAPPED | WINDOWS_STYLE::WS_VISIBLE,
+                    WINDOWS_STYLE::WS_OVERLAPPED,
                     windows_and_messaging::CW_USEDEFAULT,
                     windows_and_messaging::CW_USEDEFAULT,
                     640,
@@ -353,6 +353,12 @@ impl Webview {
     }
 
     pub fn create(debug: bool, window: Option<Window>) -> Webview {
+        static COM_INIT: Once = Once::new();
+
+        COM_INIT.call_once(|| unsafe {
+            assert!(com::CoInitialize(0 as *mut _).is_ok());
+        });
+
         let mut frame = match window {
             Some(Window(_)) => None,
             None => Some(Webview::create_frame()),
@@ -476,15 +482,7 @@ impl Webview {
         webview.init(r#"window.external={invoke:s=>window.chrome.webview.postMessage(s)}"#);
 
         if webview.frame.is_some() {
-            let webview = Box::new(webview.clone());
-
-            unsafe {
-                Webview::set_window_webview(h_wnd, webview);
-
-                windows_and_messaging::ShowWindow(h_wnd, SHOW_WINDOW_CMD::SW_SHOW);
-                gdi::UpdateWindow(h_wnd);
-                keyboard_and_mouse_input::SetFocus(h_wnd);
-            }
+            Webview::set_window_webview(h_wnd, Box::new(webview.clone()));
         }
 
         webview
@@ -515,6 +513,15 @@ impl Webview {
         Webview::run_one(&mut pool);
 
         pool.run_until(output).expect("completed the navigation");
+
+        if let Some(frame) = self.frame.as_ref() {
+            let h_wnd = frame.window.0;
+            unsafe {
+                windows_and_messaging::ShowWindow(h_wnd, SHOW_WINDOW_CMD::SW_SHOW);
+                gdi::UpdateWindow(h_wnd);
+                keyboard_and_mouse_input::SetFocus(h_wnd);
+            }
+        }
 
         let mut msg = windows_and_messaging::MSG::default();
         let h_wnd = windows_and_messaging::HWND::default();
