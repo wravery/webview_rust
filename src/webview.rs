@@ -69,6 +69,7 @@ impl Drop for FrameWindow {
 #[derive(Clone)]
 pub struct Webview {
     controller: Arc<CoreWebView2Controller>,
+    webview: Arc<CoreWebView2>,
     tx: mpsc::Sender<Box<dyn FnOnce(Webview) + Send>>,
     rx: Arc<mpsc::Receiver<Box<dyn FnOnce(Webview) + Send>>>,
     thread_id: u32,
@@ -408,6 +409,13 @@ impl Webview {
         controller.set_is_visible(true)?;
 
         let webview = controller.core_web_view2()?;
+
+        if !debug {
+            let settings = webview.settings()?;
+            settings.set_are_dev_tools_enabled(false)?;
+            settings.set_are_default_context_menus_enabled(false)?;
+        }
+
         let bindings: Arc<Mutex<HashMap<String, Box<dyn FnMut(&str, &str)>>>> =
             Arc::new(Mutex::new(HashMap::new()));
         let bindings_ref = bindings.clone();
@@ -431,12 +439,7 @@ impl Webview {
             }
             Ok(())
         }))?;
-
-        if !debug {
-            let settings = webview.settings()?;
-            settings.set_are_dev_tools_enabled(false)?;
-            settings.set_are_default_context_menus_enabled(false)?;
-        }
+        println!("Registered web_message_received: {:#?}", token);
 
         if let Some(frame) = frame.as_ref() {
             *frame.size.lock().expect("lock size") = size;
@@ -449,6 +452,7 @@ impl Webview {
 
         let webview = Webview {
             controller: Arc::new(controller),
+            webview: Arc::new(webview),
             tx,
             rx,
             thread_id,
@@ -470,7 +474,7 @@ impl Webview {
     }
 
     pub fn run(&self) -> Result<()> {
-        let webview = self.controller.core_web_view2()?;
+        let webview = self.webview.as_ref();
         let url = self.url.lock().expect("lock url").clone();
         let (tx, rx) = mpsc::channel();
 
@@ -613,7 +617,7 @@ impl Webview {
         let js = HString::from_wide(&js);
 
         let (tx, rx) = mpsc::channel();
-        let webview = self.controller.core_web_view2()?;
+        let webview = self.webview.as_ref();
         webview
             .add_script_to_execute_on_document_created_async(js)?
             .set_completed(AsyncOperationCompletedHandler::new(move |op, _status| {
@@ -631,7 +635,7 @@ impl Webview {
         let js: Vec<u16> = js.encode_utf16().collect();
         let js = HString::from_wide(&js);
 
-        let webview = self.controller.core_web_view2()?;
+        let webview = self.webview.as_ref();
         let (tx, rx) = mpsc::channel();
         webview
             .execute_script_async(js)?
