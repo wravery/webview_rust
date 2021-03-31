@@ -87,7 +87,7 @@ impl<'a> WebviewBuilder<'a> {
         }
 
         if let Some(eval) = self.eval {
-            w.eval(eval);
+            w.eval(eval)?;
         }
 
         w.set_size(self.size.0 as i32, self.size.1 as i32, self.size.2)?;
