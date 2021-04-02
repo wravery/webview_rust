@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     ffi::CString,
+    marker::PhantomData,
     mem, ptr,
     sync::{
         atomic::{AtomicU32, Ordering},
@@ -400,7 +401,9 @@ impl Webview {
             let handler = Box::new(CreateCoreWebView2EnvironmentCompletedHandler::new(
                 Box::new(|error_code, environment| {
                     if error_code.is_ok() {
-                        context.send(environment);
+                        if let Some(environment) = environment {
+                            context.send(environment);
+                        }
                     }
                     windows::ErrorCode::S_OK
                 }),
@@ -427,7 +430,9 @@ impl Webview {
             let handler = Box::new(CreateCoreWebView2ControllerCompletedHandler::new(Box::new(
                 |error_code, controller| {
                     if error_code.is_ok() {
-                        context.send(controller);
+                        if let Some(controller) = controller {
+                            context.send(controller);
+                        }
                     }
                     windows::ErrorCode::S_OK
                 },
@@ -470,14 +475,16 @@ impl Webview {
         let handler = Box::new(WebMessageReceivedEventHandler::new(Box::new(
             move |_sender, args| {
                 let mut message = PWSTR::default();
-                if unsafe { args.get_WebMessageAsJson(&mut message) }.is_ok() {
-                    let message = string_from_pwstr(message);
-                    if let Ok(value) = serde_json::from_str::<InvokeMessage>(&message) {
-                        let mut bindings = bindings_ref.lock().expect("lock bindings");
-                        if let Some(f) = bindings.get_mut(&value.method) {
-                            let id = serde_json::to_string(&value.id).unwrap();
-                            let params = serde_json::to_string(&value.params).unwrap();
-                            (*f)(&id, &params);
+                if let Some(args) = args {
+                    if unsafe { args.get_WebMessageAsJson(&mut message) }.is_ok() {
+                        let message = take_pwstr(message);
+                        if let Ok(value) = serde_json::from_str::<InvokeMessage>(&message) {
+                            let mut bindings = bindings_ref.lock().expect("lock bindings");
+                            if let Some(f) = bindings.get_mut(&value.method) {
+                                let id = serde_json::to_string(&value.id).unwrap();
+                                let params = serde_json::to_string(&value.params).unwrap();
+                                (*f)(&id, &params);
+                            }
                         }
                     }
                 }
@@ -809,10 +816,6 @@ impl Webview {
     }
 }
 
-unsafe fn from_interface<'a, T>(this: windows::RawPtr) -> &'a mut T {
-    &mut *(this as *mut _)
-}
-
 unsafe fn from_abi<I: Interface>(this: windows::RawPtr) -> windows::Result<I> {
     let unknown = windows::IUnknown::from_abi(this)?;
     unknown.vtable().1(unknown.abi()); // add_ref to balance the release called in IUnknown::drop
@@ -830,7 +833,11 @@ fn string_from_pwstr(source: PWSTR) -> String {
         }
     }
 
-    let result = String::from_utf16(&buffer).expect("string_from_pwstr");
+    String::from_utf16(&buffer).expect("string_from_pwstr")
+}
+
+fn take_pwstr(source: PWSTR) -> String {
+    let result = string_from_pwstr(source);
 
     if !source.0.is_null() {
         unsafe {
@@ -841,8 +848,71 @@ fn string_from_pwstr(source: PWSTR) -> String {
     result
 }
 
+trait CallbackInterface<I: Interface>: Sized {
+    fn refcount(&self) -> &AtomicU32;
+
+    unsafe extern "system" fn query_interface(
+        this: windows::RawPtr,
+        iid: &windows::Guid,
+        interface: *mut windows::RawPtr,
+    ) -> windows::ErrorCode {
+        if interface.is_null() {
+            windows::ErrorCode::E_POINTER
+        } else if *iid == windows::IUnknown::IID || *iid == <I as Interface>::IID {
+            Self::add_ref(this);
+            *interface = this;
+            windows::ErrorCode::S_OK
+        } else {
+            windows::ErrorCode::E_NOINTERFACE
+        }
+    }
+
+    unsafe extern "system" fn add_ref(this: windows::RawPtr) -> u32 {
+        let interface: *mut Self = mem::transmute(this);
+        let count = (*interface).refcount().fetch_add(1, Ordering::Release) + 1;
+        count
+    }
+
+    unsafe extern "system" fn release(this: windows::RawPtr) -> u32 {
+        let interface: *mut Self = mem::transmute(this);
+        let count = (*interface).refcount().fetch_sub(1, Ordering::Release) - 1;
+        if count == 0 {
+            // Destroy the underlying data
+            Box::from_raw(interface);
+        }
+        count
+    }
+}
+
+type CompletedClosure<Arg1, Arg2> = Box<dyn FnOnce(Arg1, Arg2) -> windows::ErrorCode>;
+
+trait ClosureArg {
+    type Input;
+    type Output;
+
+    fn convert(input: Self::Input) -> Self::Output;
+}
+
+trait CompletedCallback<I: Interface, Arg1: ClosureArg, Arg2: ClosureArg>:
+    CallbackInterface<I>
+{
+    fn completed(&mut self) -> Option<CompletedClosure<Arg1::Output, Arg2::Output>>;
+
+    unsafe extern "system" fn invoke(
+        this: windows::RawPtr,
+        arg_1: Arg1::Input,
+        arg_2: Arg2::Input,
+    ) -> windows::ErrorCode {
+        let interface: *mut Self = mem::transmute(this);
+        match (*interface).completed() {
+            Some(completed) => completed(Arg1::convert(arg_1), Arg2::convert(arg_2)),
+            None => windows::ErrorCode::S_OK,
+        }
+    }
+}
+
 type CreateCoreWebView2EnvironmentCompletedCallback =
-    Box<dyn FnOnce(windows::ErrorCode, WebView2::ICoreWebView2Environment) -> windows::ErrorCode>;
+    CompletedClosure<windows::ErrorCode, Option<WebView2::ICoreWebView2Environment>>;
 
 #[repr(C)]
 struct CreateCoreWebView2EnvironmentCompletedHandler {
@@ -867,61 +937,59 @@ impl CreateCoreWebView2EnvironmentCompletedHandler {
             completed: Some(completed),
         }
     }
+}
 
-    unsafe extern "system" fn query_interface(
-        this: windows::RawPtr,
-        iid: &windows::Guid,
-        interface: *mut windows::RawPtr,
-    ) -> windows::ErrorCode {
-        if interface.is_null() {
-            windows::ErrorCode::E_POINTER
+struct ErrorCodeArg();
+
+impl ClosureArg for ErrorCodeArg {
+    type Input = windows::ErrorCode;
+    type Output = windows::ErrorCode;
+
+    fn convert(input: windows::ErrorCode) -> windows::ErrorCode {
+        input
+    }
+}
+
+struct InterfaceArg<I: Interface>(PhantomData<I>);
+
+impl<I: Interface> ClosureArg for InterfaceArg<I> {
+    type Input = windows::RawPtr;
+    type Output = Option<I>;
+
+    fn convert(input: windows::RawPtr) -> Option<I> {
+        if input.is_null() {
+            None
         } else {
-            match *iid {
-                windows::IUnknown::IID
-                | WebView2::ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler::IID => {
-                    CreateCoreWebView2EnvironmentCompletedHandler::add_ref(this);
-                    *interface = this;
-                    windows::ErrorCode::S_OK
-                }
-                _ => windows::ErrorCode::E_NOINTERFACE,
+            match unsafe { from_abi(input) } {
+                Ok(interface) => Some(interface),
+                Err(_) => None,
             }
-        }
-    }
-
-    unsafe extern "system" fn add_ref(this: windows::RawPtr) -> u32 {
-        let interface: &Self = from_interface(this);
-        let count = interface.refcount.fetch_add(1, Ordering::Release) + 1;
-        count
-    }
-
-    unsafe extern "system" fn release(this: windows::RawPtr) -> u32 {
-        let interface: &mut Self = from_interface(this);
-        let count = interface.refcount.fetch_sub(1, Ordering::Release) - 1;
-        if count == 0 {
-            // Destroy the underlying data
-            Box::from_raw(interface);
-        }
-        count
-    }
-
-    unsafe extern "system" fn invoke(
-        this: windows::RawPtr,
-        error_code: windows::ErrorCode,
-        environment: windows::RawPtr,
-    ) -> windows::ErrorCode {
-        let interface: &mut Self = from_interface(this);
-        match from_abi(environment) {
-            Ok(environment) => match interface.completed.take() {
-                Some(completed) => completed(error_code, environment),
-                None => windows::ErrorCode::S_OK,
-            },
-            Err(err) => err.code(),
         }
     }
 }
 
+impl CallbackInterface<WebView2::ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>
+    for CreateCoreWebView2EnvironmentCompletedHandler
+{
+    fn refcount(&self) -> &AtomicU32 {
+        &self.refcount
+    }
+}
+
+impl
+    CompletedCallback<
+        WebView2::ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler,
+        ErrorCodeArg,
+        InterfaceArg<WebView2::ICoreWebView2Environment>,
+    > for CreateCoreWebView2EnvironmentCompletedHandler
+{
+    fn completed(&mut self) -> Option<CreateCoreWebView2EnvironmentCompletedCallback> {
+        self.completed.take()
+    }
+}
+
 type CreateCoreWebView2ControllerCompletedCallback =
-    Box<dyn FnOnce(windows::ErrorCode, WebView2::ICoreWebView2Controller) -> windows::ErrorCode>;
+    CompletedClosure<windows::ErrorCode, Option<WebView2::ICoreWebView2Controller>>;
 
 #[repr(C)]
 struct CreateCoreWebView2ControllerCompletedHandler {
@@ -946,75 +1014,57 @@ impl CreateCoreWebView2ControllerCompletedHandler {
             completed: Some(completed),
         }
     }
+}
 
-    unsafe extern "system" fn query_interface(
-        this: windows::RawPtr,
-        iid: &windows::Guid,
-        interface: *mut windows::RawPtr,
-    ) -> windows::ErrorCode {
-        if interface.is_null() {
-            windows::ErrorCode::E_POINTER
-        } else {
-            match *iid {
-                windows::IUnknown::IID
-                | WebView2::ICoreWebView2CreateCoreWebView2ControllerCompletedHandler::IID => {
-                    CreateCoreWebView2ControllerCompletedHandler::add_ref(this);
-                    *interface = this;
-                    windows::ErrorCode::S_OK
-                }
-                _ => windows::ErrorCode::E_NOINTERFACE,
-            }
-        }
-    }
-
-    unsafe extern "system" fn add_ref(this: windows::RawPtr) -> u32 {
-        let interface: &Self = from_interface(this);
-        let count = interface.refcount.fetch_add(1, Ordering::Release) + 1;
-        count
-    }
-
-    unsafe extern "system" fn release(this: windows::RawPtr) -> u32 {
-        let interface: &mut Self = from_interface(this);
-        let count = interface.refcount.fetch_sub(1, Ordering::Release) - 1;
-        if count == 0 {
-            // Destroy the underlying data
-            Box::from_raw(interface);
-        }
-        count
-    }
-
-    unsafe extern "system" fn invoke(
-        this: windows::RawPtr,
-        error_code: windows::ErrorCode,
-        controller: windows::RawPtr,
-    ) -> windows::ErrorCode {
-        let interface: &mut Self = from_interface(this);
-        match from_abi(controller) {
-            Ok(controller) => match interface.completed.take() {
-                Some(completed) => completed(error_code, controller),
-                None => windows::ErrorCode::S_OK,
-            },
-            Err(err) => err.code(),
-        }
+impl CallbackInterface<WebView2::ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>
+    for CreateCoreWebView2ControllerCompletedHandler
+{
+    fn refcount(&self) -> &AtomicU32 {
+        &self.refcount
     }
 }
 
-type WebMessageReceivedEventCallback = Box<
-    dyn FnMut(
-        WebView2::ICoreWebView2,
-        WebView2::ICoreWebView2WebMessageReceivedEventArgs,
-    ) -> windows::ErrorCode,
+impl
+    CompletedCallback<
+        WebView2::ICoreWebView2CreateCoreWebView2ControllerCompletedHandler,
+        ErrorCodeArg,
+        InterfaceArg<WebView2::ICoreWebView2Controller>,
+    > for CreateCoreWebView2ControllerCompletedHandler
+{
+    fn completed(&mut self) -> Option<CreateCoreWebView2ControllerCompletedCallback> {
+        self.completed.take()
+    }
+}
+
+type EventClosure<Arg1, Arg2> = Box<dyn FnMut(Arg1, Arg2) -> windows::ErrorCode>;
+
+trait EventCallback<I: Interface, Arg1: ClosureArg, Arg2: ClosureArg>: CallbackInterface<I> {
+    fn event(&mut self) -> &mut EventClosure<Arg1::Output, Arg2::Output>;
+
+    unsafe extern "system" fn invoke(
+        this: windows::RawPtr,
+        arg_1: Arg1::Input,
+        arg_2: Arg2::Input,
+    ) -> windows::ErrorCode {
+        let interface: *mut Self = mem::transmute(this);
+        ((*interface).event())(Arg1::convert(arg_1), Arg2::convert(arg_2))
+    }
+}
+
+type WebMessageReceivedEventCallback = EventClosure<
+    Option<WebView2::ICoreWebView2>,
+    Option<WebView2::ICoreWebView2WebMessageReceivedEventArgs>,
 >;
 
 #[repr(C)]
 struct WebMessageReceivedEventHandler {
     vtable: *const WebView2::ICoreWebView2WebMessageReceivedEventHandler_abi,
     refcount: AtomicU32,
-    completed: WebMessageReceivedEventCallback,
+    event: WebMessageReceivedEventCallback,
 }
 
 impl WebMessageReceivedEventHandler {
-    pub fn new(completed: WebMessageReceivedEventCallback) -> Self {
+    pub fn new(event: WebMessageReceivedEventCallback) -> Self {
         static VTABLE: WebView2::ICoreWebView2WebMessageReceivedEventHandler_abi =
             WebView2::ICoreWebView2WebMessageReceivedEventHandler_abi(
                 WebMessageReceivedEventHandler::query_interface,
@@ -1026,76 +1076,45 @@ impl WebMessageReceivedEventHandler {
         Self {
             vtable: &VTABLE,
             refcount: AtomicU32::new(1),
-            completed,
-        }
-    }
-
-    unsafe extern "system" fn query_interface(
-        this: windows::RawPtr,
-        iid: &windows::Guid,
-        interface: *mut windows::RawPtr,
-    ) -> windows::ErrorCode {
-        if interface.is_null() {
-            windows::ErrorCode::E_POINTER
-        } else {
-            match *iid {
-                windows::IUnknown::IID
-                | WebView2::ICoreWebView2WebMessageReceivedEventHandler::IID => {
-                    WebMessageReceivedEventHandler::add_ref(this);
-                    *interface = this;
-                    windows::ErrorCode::S_OK
-                }
-                _ => windows::ErrorCode::E_NOINTERFACE,
-            }
-        }
-    }
-
-    unsafe extern "system" fn add_ref(this: windows::RawPtr) -> u32 {
-        let interface: &Self = from_interface(this);
-        let count = interface.refcount.fetch_add(1, Ordering::Release) + 1;
-        count
-    }
-
-    unsafe extern "system" fn release(this: windows::RawPtr) -> u32 {
-        let interface: &mut Self = from_interface(this);
-        let count = interface.refcount.fetch_sub(1, Ordering::Release) - 1;
-        if count == 0 {
-            // Destroy the underlying data
-            Box::from_raw(interface);
-        }
-        count
-    }
-
-    unsafe extern "system" fn invoke(
-        this: windows::RawPtr,
-        sender: windows::RawPtr,
-        args: windows::RawPtr,
-    ) -> windows::ErrorCode {
-        let interface: &mut Self = from_interface(this);
-        match (from_abi(sender), from_abi(args)) {
-            (Ok(sender), Ok(args)) => (interface.completed)(sender, args),
-            (Err(err), _) => err.code(),
-            (_, Err(err)) => err.code(),
+            event,
         }
     }
 }
 
-type NavigationCompletedEventCallback = Box<
-    dyn FnMut(
-        WebView2::ICoreWebView2,
-        WebView2::ICoreWebView2NavigationCompletedEventArgs,
-    ) -> windows::ErrorCode,
+impl CallbackInterface<WebView2::ICoreWebView2WebMessageReceivedEventHandler>
+    for WebMessageReceivedEventHandler
+{
+    fn refcount(&self) -> &AtomicU32 {
+        &self.refcount
+    }
+}
+
+impl
+    EventCallback<
+        WebView2::ICoreWebView2WebMessageReceivedEventHandler,
+        InterfaceArg<WebView2::ICoreWebView2>,
+        InterfaceArg<WebView2::ICoreWebView2WebMessageReceivedEventArgs>,
+    > for WebMessageReceivedEventHandler
+{
+    fn event(&mut self) -> &mut WebMessageReceivedEventCallback {
+        &mut self.event
+    }
+}
+
+type NavigationCompletedEventCallback = EventClosure<
+    Option<WebView2::ICoreWebView2>,
+    Option<WebView2::ICoreWebView2NavigationCompletedEventArgs>,
 >;
 
 #[repr(C)]
 struct NavigationCompletedEventHandler {
     vtable: *const WebView2::ICoreWebView2NavigationCompletedEventHandler_abi,
     refcount: AtomicU32,
-    completed: NavigationCompletedEventCallback,
+    event: NavigationCompletedEventCallback,
 }
 
 impl NavigationCompletedEventHandler {
-    pub fn new(completed: NavigationCompletedEventCallback) -> Self {
+    pub fn new(event: NavigationCompletedEventCallback) -> Self {
         static VTABLE: WebView2::ICoreWebView2NavigationCompletedEventHandler_abi =
             WebView2::ICoreWebView2NavigationCompletedEventHandler_abi(
                 NavigationCompletedEventHandler::query_interface,
@@ -1107,62 +1126,44 @@ impl NavigationCompletedEventHandler {
         Self {
             vtable: &VTABLE,
             refcount: AtomicU32::new(1),
-            completed,
-        }
-    }
-
-    unsafe extern "system" fn query_interface(
-        this: windows::RawPtr,
-        iid: &windows::Guid,
-        interface: *mut windows::RawPtr,
-    ) -> windows::ErrorCode {
-        if interface.is_null() {
-            windows::ErrorCode::E_POINTER
-        } else {
-            match *iid {
-                windows::IUnknown::IID
-                | WebView2::ICoreWebView2NavigationCompletedEventHandler::IID => {
-                    NavigationCompletedEventHandler::add_ref(this);
-                    *interface = this;
-                    windows::ErrorCode::S_OK
-                }
-                _ => windows::ErrorCode::E_NOINTERFACE,
-            }
-        }
-    }
-
-    unsafe extern "system" fn add_ref(this: windows::RawPtr) -> u32 {
-        let interface: &Self = from_interface(this);
-        let count = interface.refcount.fetch_add(1, Ordering::Release) + 1;
-        count
-    }
-
-    unsafe extern "system" fn release(this: windows::RawPtr) -> u32 {
-        let interface: &mut Self = from_interface(this);
-        let count = interface.refcount.fetch_sub(1, Ordering::Release) - 1;
-        if count == 0 {
-            // Destroy the underlying data
-            Box::from_raw(interface);
-        }
-        count
-    }
-
-    unsafe extern "system" fn invoke(
-        this: windows::RawPtr,
-        sender: windows::RawPtr,
-        args: windows::RawPtr,
-    ) -> windows::ErrorCode {
-        let interface: &mut Self = from_interface(this);
-        match (from_abi(sender), from_abi(args)) {
-            (Ok(sender), Ok(args)) => (interface.completed)(sender, args),
-            (Err(err), _) => err.code(),
-            (_, Err(err)) => err.code(),
+            event,
         }
     }
 }
 
+impl CallbackInterface<WebView2::ICoreWebView2NavigationCompletedEventHandler>
+    for NavigationCompletedEventHandler
+{
+    fn refcount(&self) -> &AtomicU32 {
+        &self.refcount
+    }
+}
+
+impl
+    EventCallback<
+        WebView2::ICoreWebView2NavigationCompletedEventHandler,
+        InterfaceArg<WebView2::ICoreWebView2>,
+        InterfaceArg<WebView2::ICoreWebView2NavigationCompletedEventArgs>,
+    > for NavigationCompletedEventHandler
+{
+    fn event(&mut self) -> &mut NavigationCompletedEventCallback {
+        &mut self.event
+    }
+}
+
+struct StringArg();
+
+impl ClosureArg for StringArg {
+    type Input = PWSTR;
+    type Output = String;
+
+    fn convert(input: PWSTR) -> String {
+        string_from_pwstr(input)
+    }
+}
+
 type AddScriptToExecuteOnDocumentCreatedCompletedCallback =
-    Box<dyn FnOnce(windows::ErrorCode, PWSTR) -> windows::ErrorCode>;
+    CompletedClosure<windows::ErrorCode, String>;
 
 #[repr(C)]
 struct AddScriptToExecuteOnDocumentCreatedCompletedHandler {
@@ -1188,59 +1189,29 @@ impl AddScriptToExecuteOnDocumentCreatedCompletedHandler {
             completed: Some(completed),
         }
     }
+}
 
-    unsafe extern "system" fn query_interface(
-        this: windows::RawPtr,
-        iid: &windows::Guid,
-        interface: *mut windows::RawPtr,
-    ) -> windows::ErrorCode {
-        if interface.is_null() {
-            windows::ErrorCode::E_POINTER
-        } else {
-            match *iid {
-                windows::IUnknown::IID
-                | WebView2::ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler::IID =>
-                {
-                    AddScriptToExecuteOnDocumentCreatedCompletedHandler::add_ref(this);
-                    *interface = this;
-                    windows::ErrorCode::S_OK
-                }
-                _ => windows::ErrorCode::E_NOINTERFACE,
-            }
-        }
-    }
-
-    unsafe extern "system" fn add_ref(this: windows::RawPtr) -> u32 {
-        let interface: &Self = from_interface(this);
-        let count = interface.refcount.fetch_add(1, Ordering::Release) + 1;
-        count
-    }
-
-    unsafe extern "system" fn release(this: windows::RawPtr) -> u32 {
-        let interface: &mut Self = from_interface(this);
-        let count = interface.refcount.fetch_sub(1, Ordering::Release) - 1;
-        if count == 0 {
-            // Destroy the underlying data
-            Box::from_raw(interface);
-        }
-        count
-    }
-
-    unsafe extern "system" fn invoke(
-        this: windows::RawPtr,
-        error_code: windows::ErrorCode,
-        id: PWSTR,
-    ) -> windows::ErrorCode {
-        let interface: &mut Self = from_interface(this);
-        match interface.completed.take() {
-            Some(completed) => completed(error_code, id),
-            None => windows::ErrorCode::S_OK,
-        }
+impl CallbackInterface<WebView2::ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler>
+    for AddScriptToExecuteOnDocumentCreatedCompletedHandler
+{
+    fn refcount(&self) -> &AtomicU32 {
+        &self.refcount
     }
 }
 
-type ExecuteScriptCompletedCallback =
-    Box<dyn FnOnce(windows::ErrorCode, PWSTR) -> windows::ErrorCode>;
+impl
+    CompletedCallback<
+        WebView2::ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler,
+        ErrorCodeArg,
+        StringArg,
+    > for AddScriptToExecuteOnDocumentCreatedCompletedHandler
+{
+    fn completed(&mut self) -> Option<AddScriptToExecuteOnDocumentCreatedCompletedCallback> {
+        self.completed.take()
+    }
+}
+
+type ExecuteScriptCompletedCallback = CompletedClosure<windows::ErrorCode, String>;
 
 #[repr(C)]
 struct ExecuteScriptCompletedHandler {
@@ -1265,52 +1236,21 @@ impl ExecuteScriptCompletedHandler {
             completed: Some(completed),
         }
     }
+}
 
-    unsafe extern "system" fn query_interface(
-        this: windows::RawPtr,
-        iid: &windows::Guid,
-        interface: *mut windows::RawPtr,
-    ) -> windows::ErrorCode {
-        if interface.is_null() {
-            windows::ErrorCode::E_POINTER
-        } else {
-            match *iid {
-                windows::IUnknown::IID
-                | WebView2::ICoreWebView2ExecuteScriptCompletedHandler::IID => {
-                    ExecuteScriptCompletedHandler::add_ref(this);
-                    *interface = this;
-                    windows::ErrorCode::S_OK
-                }
-                _ => windows::ErrorCode::E_NOINTERFACE,
-            }
-        }
+impl CallbackInterface<WebView2::ICoreWebView2ExecuteScriptCompletedHandler>
+    for ExecuteScriptCompletedHandler
+{
+    fn refcount(&self) -> &AtomicU32 {
+        &self.refcount
     }
+}
 
-    unsafe extern "system" fn add_ref(this: windows::RawPtr) -> u32 {
-        let interface: &Self = from_interface(this);
-        let count = interface.refcount.fetch_add(1, Ordering::Release) + 1;
-        count
-    }
-
-    unsafe extern "system" fn release(this: windows::RawPtr) -> u32 {
-        let interface: &mut Self = from_interface(this);
-        let count = interface.refcount.fetch_sub(1, Ordering::Release) - 1;
-        if count == 0 {
-            // Destroy the underlying data
-            Box::from_raw(interface);
-        }
-        count
-    }
-
-    unsafe extern "system" fn invoke(
-        this: windows::RawPtr,
-        error_code: windows::ErrorCode,
-        result_as_json: PWSTR,
-    ) -> windows::ErrorCode {
-        let interface: &mut Self = from_interface(this);
-        match interface.completed.take() {
-            Some(completed) => completed(error_code, result_as_json),
-            None => windows::ErrorCode::S_OK,
-        }
+impl
+    CompletedCallback<WebView2::ICoreWebView2ExecuteScriptCompletedHandler, ErrorCodeArg, StringArg>
+    for ExecuteScriptCompletedHandler
+{
+    fn completed(&mut self) -> Option<ExecuteScriptCompletedCallback> {
+        self.completed.take()
     }
 }
