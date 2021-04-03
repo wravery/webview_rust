@@ -91,8 +91,8 @@ impl Drop for Webview {
         match Arc::strong_count(&self.parent) {
             0 => {
                 unsafe {
-                    self.webview.remove_WebMessageReceived(self.token).unwrap();
-                    self.controller.Close().unwrap();
+                    self.webview.remove_WebMessageReceived(self.token);
+                    self.controller.Close();
                 }
 
                 if self.frame.is_none() {
@@ -269,15 +269,12 @@ impl Webview {
                 WindowsAndMessaging::WM_SIZE => {
                     let size = Webview::get_window_size(h_wnd);
                     unsafe {
-                        webview
-                            .controller
-                            .put_Bounds(RECT {
-                                left: 0,
-                                top: 0,
-                                right: size.width,
-                                bottom: size.height,
-                            })
-                            .unwrap();
+                        webview.controller.put_Bounds(RECT {
+                            left: 0,
+                            top: 0,
+                            right: size.width,
+                            bottom: size.height,
+                        });
                     }
                     *frame.size.lock().expect("lock size") = size;
                     LRESULT(0)
@@ -410,7 +407,7 @@ impl Webview {
             unsafe {
                 let handler: WebView2::ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler =
                     callback::from_abi(Box::into_raw(handler) as windows::RawPtr).unwrap();
-                WebView2::CreateCoreWebView2Environment(handler).unwrap();
+                WebView2::CreateCoreWebView2Environment(handler);
             };
 
             Webview::run_one(&mut pool);
@@ -439,9 +436,7 @@ impl Webview {
             unsafe {
                 let handler: WebView2::ICoreWebView2CreateCoreWebView2ControllerCompletedHandler =
                     callback::from_abi(Box::into_raw(handler) as windows::RawPtr).unwrap();
-                environment
-                    .CreateCoreWebView2Controller(h_wnd, handler)
-                    .unwrap();
+                environment.CreateCoreWebView2Controller(h_wnd, handler);
             }
 
             Webview::run_one(&mut pool);
@@ -451,20 +446,18 @@ impl Webview {
 
         let size = Webview::get_window_size(h_wnd);
         unsafe {
-            controller
-                .put_Bounds(RECT {
-                    left: 0,
-                    top: 0,
-                    right: size.width,
-                    bottom: size.height,
-                })
-                .unwrap();
-            controller.put_IsVisible(true).unwrap();
+            controller.put_Bounds(RECT {
+                left: 0,
+                top: 0,
+                right: size.width,
+                bottom: size.height,
+            });
+            controller.put_IsVisible(true);
         }
 
         let mut webview = None;
         unsafe {
-            controller.get_CoreWebView2(&mut webview).unwrap();
+            controller.get_CoreWebView2(&mut webview);
         }
         let webview = webview.expect("get_CoreWebView2");
         let bindings: Arc<Mutex<HashMap<String, Box<dyn FnMut(&str, &str)>>>> =
@@ -474,7 +467,10 @@ impl Webview {
             move |_sender, args| {
                 let mut message = PWSTR::default();
                 if let Some(args) = args {
-                    if unsafe { args.get_WebMessageAsJson(&mut message) }.is_ok() {
+                    let code = windows::ErrorCode(
+                        unsafe { args.get_WebMessageAsJson(&mut message) }.0 as u32,
+                    );
+                    if code.is_ok() {
                         let message = take_pwstr(message);
                         if let Ok(value) = serde_json::from_str::<InvokeMessage>(&message) {
                             let mut bindings = bindings_ref.lock().expect("lock bindings");
@@ -494,16 +490,17 @@ impl Webview {
         unsafe {
             let handler: WebView2::ICoreWebView2WebMessageReceivedEventHandler =
                 callback::from_abi(Box::into_raw(handler) as windows::RawPtr).unwrap();
-            webview.add_WebMessageReceived(handler, &mut token).unwrap();
+            webview.add_WebMessageReceived(handler, &mut token);
         }
 
         if !debug {
             let mut settings = None;
             unsafe {
-                if webview.get_Settings(&mut settings).is_ok() {
+                let code = windows::ErrorCode(webview.get_Settings(&mut settings).0 as u32);
+                if code.is_ok() {
                     if let Some(settings) = settings {
-                        settings.put_AreDevToolsEnabled(false).unwrap();
-                        settings.put_AreDefaultContextMenusEnabled(false).unwrap();
+                        settings.put_AreDevToolsEnabled(false);
+                        settings.put_AreDefaultContextMenusEnabled(false);
                     }
                 }
             }
@@ -567,10 +564,8 @@ impl Webview {
             unsafe {
                 let handler: WebView2::ICoreWebView2NavigationCompletedEventHandler =
                     callback::from_abi(Box::into_raw(handler) as windows::RawPtr).unwrap();
-                self.webview
-                    .add_NavigationCompleted(handler, &mut token)
-                    .unwrap();
-                self.webview.Navigate(url).unwrap();
+                self.webview.add_NavigationCompleted(handler, &mut token);
+                self.webview.Navigate(url);
             }
 
             Webview::run_one(&mut pool);
@@ -578,7 +573,7 @@ impl Webview {
             pool.run_until(output).expect("completed the navigation");
 
             unsafe {
-                self.webview.remove_NavigationCompleted(token).unwrap();
+                self.webview.remove_NavigationCompleted(token);
             }
         }
 
@@ -648,14 +643,12 @@ impl Webview {
                     *frame.size.lock().expect("lock size") = WindowSize { width, height };
 
                     unsafe {
-                        self.controller
-                            .put_Bounds(RECT {
-                                left: 0,
-                                top: 0,
-                                right: width,
-                                bottom: height,
-                            })
-                            .unwrap();
+                        self.controller.put_Bounds(RECT {
+                            left: 0,
+                            top: 0,
+                            right: width,
+                            bottom: height,
+                        });
 
                         WindowsAndMessaging::SetWindowPos(
                             frame.window.0,
@@ -706,8 +699,7 @@ impl Webview {
             let handler: WebView2::ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler =
             callback::from_abi(Box::into_raw(handler) as windows::RawPtr).unwrap();
             self.webview
-                .AddScriptToExecuteOnDocumentCreated(js, handler)
-                .unwrap();
+                .AddScriptToExecuteOnDocumentCreated(js, handler);
         };
 
         Webview::run_one(&mut pool);
@@ -735,7 +727,7 @@ impl Webview {
         unsafe {
             let handler: WebView2::ICoreWebView2ExecuteScriptCompletedHandler =
                 callback::from_abi(Box::into_raw(handler) as windows::RawPtr).unwrap();
-            self.webview.ExecuteScript(js, handler).unwrap();
+            self.webview.ExecuteScript(js, handler);
         };
 
         Webview::run_one(&mut pool);
