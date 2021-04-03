@@ -9,13 +9,6 @@ fn main() -> io::Result<()> {
     let target_path = webview2_nuget::get_target_path()?;
     webview2_nuget::copy_dll(&source_path, &target_path)?;
 
-    cxx_build::bridge("src/bridge.rs")
-        .include(webview2_include.as_path())
-        .file("src/bridge.cpp")
-        .flag_if_supported("/std:c++17")
-        .flag_if_supported("/EHsc")
-        .compile("webview_official");
-
     Ok(())
 }
 
