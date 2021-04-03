@@ -1,6 +1,3 @@
-#[macro_use]
-extern crate callback_derive;
-
 use std::{
     marker::PhantomData,
     mem,
@@ -94,38 +91,6 @@ pub trait CompletedCallback<I: Interface, Arg1: ClosureArg, Arg2: ClosureArg>:
     }
 }
 
-// type CreateCoreWebView2EnvironmentCompletedCallback =
-//     CompletedClosure<windows::ErrorCode, Option<WebView2::ICoreWebView2Environment>>;
-
-#[repr(C)]
-#[derive(CompletedCallback)]
-#[interface = "WebView2::ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler_abi"]
-#[arg_1 = "ErrorCodeArg"]
-#[arg_2 = "InterfaceArg<WebView2::ICoreWebView2Environment>"]
-pub struct CreateCoreWebView2EnvironmentCompletedHandler {
-    vtable: *const WebView2::ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler_abi,
-    refcount: AtomicU32,
-    completed: Option<CreateCoreWebView2EnvironmentCompletedHandlerClosure>,
-}
-
-// impl CreateCoreWebView2EnvironmentCompletedHandler {
-//     pub fn new(completed: CreateCoreWebView2EnvironmentCompletedCallback) -> Self {
-//         static VTABLE: WebView2::ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler_abi =
-//             WebView2::ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler_abi(
-//                 CreateCoreWebView2EnvironmentCompletedHandler::query_interface,
-//                 CreateCoreWebView2EnvironmentCompletedHandler::add_ref,
-//                 CreateCoreWebView2EnvironmentCompletedHandler::release,
-//                 CreateCoreWebView2EnvironmentCompletedHandler::invoke,
-//             );
-
-//         Self {
-//             vtable: &VTABLE,
-//             refcount: AtomicU32::new(1),
-//             completed: Some(completed),
-//         }
-//     }
-// }
-
 pub struct ErrorCodeArg();
 
 impl ClosureArg for ErrorCodeArg {
@@ -155,77 +120,25 @@ impl<I: Interface> ClosureArg for InterfaceArg<I> {
     }
 }
 
-// impl CallbackInterface<WebView2::ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>
-//     for CreateCoreWebView2EnvironmentCompletedHandler
-// {
-//     fn refcount(&self) -> &AtomicU32 {
-//         &self.refcount
-//     }
-// }
+#[completed_callback(
+    interface = "WebView2::ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler",
+    arg_1 = "ErrorCodeArg",
+    arg_2 = "InterfaceArg<WebView2::ICoreWebView2Environment>"
+)]
+pub struct CreateCoreWebView2EnvironmentCompletedHandler;
 
-// impl
-//     CompletedCallback<
-//         WebView2::ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler,
-//         ErrorCodeArg,
-//         InterfaceArg<WebView2::ICoreWebView2Environment>,
-//     > for CreateCoreWebView2EnvironmentCompletedHandler
-// {
-//     fn completed(&mut self) -> Option<CreateCoreWebView2EnvironmentCompletedCallback> {
-//         self.completed.take()
-//     }
-// }
-
-type CreateCoreWebView2ControllerCompletedCallback =
-    CompletedClosure<windows::ErrorCode, Option<WebView2::ICoreWebView2Controller>>;
-
-#[repr(C)]
-pub struct CreateCoreWebView2ControllerCompletedHandler {
-    vtable: *const WebView2::ICoreWebView2CreateCoreWebView2ControllerCompletedHandler_abi,
-    refcount: AtomicU32,
-    completed: Option<CreateCoreWebView2ControllerCompletedCallback>,
-}
-
-impl CreateCoreWebView2ControllerCompletedHandler {
-    pub fn new(completed: CreateCoreWebView2ControllerCompletedCallback) -> Self {
-        static VTABLE: WebView2::ICoreWebView2CreateCoreWebView2ControllerCompletedHandler_abi =
-            WebView2::ICoreWebView2CreateCoreWebView2ControllerCompletedHandler_abi(
-                CreateCoreWebView2ControllerCompletedHandler::query_interface,
-                CreateCoreWebView2ControllerCompletedHandler::add_ref,
-                CreateCoreWebView2ControllerCompletedHandler::release,
-                CreateCoreWebView2ControllerCompletedHandler::invoke,
-            );
-
-        Self {
-            vtable: &VTABLE,
-            refcount: AtomicU32::new(1),
-            completed: Some(completed),
-        }
-    }
-}
-
-impl CallbackInterface<WebView2::ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>
-    for CreateCoreWebView2ControllerCompletedHandler
-{
-    fn refcount(&self) -> &AtomicU32 {
-        &self.refcount
-    }
-}
-
-impl
-    CompletedCallback<
-        WebView2::ICoreWebView2CreateCoreWebView2ControllerCompletedHandler,
-        ErrorCodeArg,
-        InterfaceArg<WebView2::ICoreWebView2Controller>,
-    > for CreateCoreWebView2ControllerCompletedHandler
-{
-    fn completed(&mut self) -> Option<CreateCoreWebView2ControllerCompletedCallback> {
-        self.completed.take()
-    }
-}
+#[completed_callback(
+    interface = "WebView2::ICoreWebView2CreateCoreWebView2ControllerCompletedHandler",
+    arg_1 = "ErrorCodeArg",
+    arg_2 = "InterfaceArg<WebView2::ICoreWebView2Controller>"
+)]
+pub struct CreateCoreWebView2ControllerCompletedHandler;
 
 type EventClosure<Arg1, Arg2> = Box<dyn FnMut(Arg1, Arg2) -> windows::ErrorCode>;
 
-pub trait EventCallback<I: Interface, Arg1: ClosureArg, Arg2: ClosureArg>: CallbackInterface<I> {
+pub trait EventCallback<I: Interface, Arg1: ClosureArg, Arg2: ClosureArg>:
+    CallbackInterface<I>
+{
     fn event(&mut self) -> &mut EventClosure<Arg1::Output, Arg2::Output>;
 
     unsafe extern "system" fn invoke(
@@ -238,105 +151,19 @@ pub trait EventCallback<I: Interface, Arg1: ClosureArg, Arg2: ClosureArg>: Callb
     }
 }
 
-type WebMessageReceivedEventCallback = EventClosure<
-    Option<WebView2::ICoreWebView2>,
-    Option<WebView2::ICoreWebView2WebMessageReceivedEventArgs>,
->;
+#[event_callback(
+    interface = "WebView2::ICoreWebView2WebMessageReceivedEventHandler",
+    arg_1 = "InterfaceArg<WebView2::ICoreWebView2>",
+    arg_2 = "InterfaceArg<WebView2::ICoreWebView2WebMessageReceivedEventArgs>"
+)]
+pub struct WebMessageReceivedEventHandler;
 
-#[repr(C)]
-pub struct WebMessageReceivedEventHandler {
-    vtable: *const WebView2::ICoreWebView2WebMessageReceivedEventHandler_abi,
-    refcount: AtomicU32,
-    event: WebMessageReceivedEventCallback,
-}
-
-impl WebMessageReceivedEventHandler {
-    pub fn new(event: WebMessageReceivedEventCallback) -> Self {
-        static VTABLE: WebView2::ICoreWebView2WebMessageReceivedEventHandler_abi =
-            WebView2::ICoreWebView2WebMessageReceivedEventHandler_abi(
-                WebMessageReceivedEventHandler::query_interface,
-                WebMessageReceivedEventHandler::add_ref,
-                WebMessageReceivedEventHandler::release,
-                WebMessageReceivedEventHandler::invoke,
-            );
-
-        Self {
-            vtable: &VTABLE,
-            refcount: AtomicU32::new(1),
-            event,
-        }
-    }
-}
-
-impl CallbackInterface<WebView2::ICoreWebView2WebMessageReceivedEventHandler>
-    for WebMessageReceivedEventHandler
-{
-    fn refcount(&self) -> &AtomicU32 {
-        &self.refcount
-    }
-}
-
-impl
-    EventCallback<
-        WebView2::ICoreWebView2WebMessageReceivedEventHandler,
-        InterfaceArg<WebView2::ICoreWebView2>,
-        InterfaceArg<WebView2::ICoreWebView2WebMessageReceivedEventArgs>,
-    > for WebMessageReceivedEventHandler
-{
-    fn event(&mut self) -> &mut WebMessageReceivedEventCallback {
-        &mut self.event
-    }
-}
-
-type NavigationCompletedEventCallback = EventClosure<
-    Option<WebView2::ICoreWebView2>,
-    Option<WebView2::ICoreWebView2NavigationCompletedEventArgs>,
->;
-
-#[repr(C)]
-pub struct NavigationCompletedEventHandler {
-    vtable: *const WebView2::ICoreWebView2NavigationCompletedEventHandler_abi,
-    refcount: AtomicU32,
-    event: NavigationCompletedEventCallback,
-}
-
-impl NavigationCompletedEventHandler {
-    pub fn new(event: NavigationCompletedEventCallback) -> Self {
-        static VTABLE: WebView2::ICoreWebView2NavigationCompletedEventHandler_abi =
-            WebView2::ICoreWebView2NavigationCompletedEventHandler_abi(
-                NavigationCompletedEventHandler::query_interface,
-                NavigationCompletedEventHandler::add_ref,
-                NavigationCompletedEventHandler::release,
-                NavigationCompletedEventHandler::invoke,
-            );
-
-        Self {
-            vtable: &VTABLE,
-            refcount: AtomicU32::new(1),
-            event,
-        }
-    }
-}
-
-impl CallbackInterface<WebView2::ICoreWebView2NavigationCompletedEventHandler>
-    for NavigationCompletedEventHandler
-{
-    fn refcount(&self) -> &AtomicU32 {
-        &self.refcount
-    }
-}
-
-impl
-    EventCallback<
-        WebView2::ICoreWebView2NavigationCompletedEventHandler,
-        InterfaceArg<WebView2::ICoreWebView2>,
-        InterfaceArg<WebView2::ICoreWebView2NavigationCompletedEventArgs>,
-    > for NavigationCompletedEventHandler
-{
-    fn event(&mut self) -> &mut NavigationCompletedEventCallback {
-        &mut self.event
-    }
-}
+#[event_callback(
+    interface = "WebView2::ICoreWebView2NavigationCompletedEventHandler",
+    arg_1 = "InterfaceArg<WebView2::ICoreWebView2>",
+    arg_2 = "InterfaceArg<WebView2::ICoreWebView2NavigationCompletedEventArgs>"
+)]
+pub struct NavigationCompletedEventHandler;
 
 pub struct StringArg();
 
@@ -349,95 +176,16 @@ impl ClosureArg for StringArg {
     }
 }
 
-type AddScriptToExecuteOnDocumentCreatedCompletedCallback =
-    CompletedClosure<windows::ErrorCode, String>;
+#[completed_callback(
+    interface = "WebView2::ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler",
+    arg_1 = "ErrorCodeArg",
+    arg_2 = "StringArg"
+)]
+pub struct AddScriptToExecuteOnDocumentCreatedCompletedHandler;
 
-#[repr(C)]
-pub struct AddScriptToExecuteOnDocumentCreatedCompletedHandler {
-    vtable: *const WebView2::ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler_abi,
-    refcount: AtomicU32,
-    completed: Option<AddScriptToExecuteOnDocumentCreatedCompletedCallback>,
-}
-
-impl AddScriptToExecuteOnDocumentCreatedCompletedHandler {
-    pub fn new(completed: AddScriptToExecuteOnDocumentCreatedCompletedCallback) -> Self {
-        static VTABLE:
-            WebView2::ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler_abi =
-            WebView2::ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler_abi(
-                AddScriptToExecuteOnDocumentCreatedCompletedHandler::query_interface,
-                AddScriptToExecuteOnDocumentCreatedCompletedHandler::add_ref,
-                AddScriptToExecuteOnDocumentCreatedCompletedHandler::release,
-                AddScriptToExecuteOnDocumentCreatedCompletedHandler::invoke,
-            );
-
-        Self {
-            vtable: &VTABLE,
-            refcount: AtomicU32::new(1),
-            completed: Some(completed),
-        }
-    }
-}
-
-impl CallbackInterface<WebView2::ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler>
-    for AddScriptToExecuteOnDocumentCreatedCompletedHandler
-{
-    fn refcount(&self) -> &AtomicU32 {
-        &self.refcount
-    }
-}
-
-impl
-    CompletedCallback<
-        WebView2::ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler,
-        ErrorCodeArg,
-        StringArg,
-    > for AddScriptToExecuteOnDocumentCreatedCompletedHandler
-{
-    fn completed(&mut self) -> Option<AddScriptToExecuteOnDocumentCreatedCompletedCallback> {
-        self.completed.take()
-    }
-}
-
-type ExecuteScriptCompletedCallback = CompletedClosure<windows::ErrorCode, String>;
-
-#[repr(C)]
-pub struct ExecuteScriptCompletedHandler {
-    vtable: *const WebView2::ICoreWebView2ExecuteScriptCompletedHandler_abi,
-    refcount: AtomicU32,
-    completed: Option<ExecuteScriptCompletedCallback>,
-}
-
-impl ExecuteScriptCompletedHandler {
-    pub fn new(completed: ExecuteScriptCompletedCallback) -> Self {
-        static VTABLE: WebView2::ICoreWebView2ExecuteScriptCompletedHandler_abi =
-            WebView2::ICoreWebView2ExecuteScriptCompletedHandler_abi(
-                ExecuteScriptCompletedHandler::query_interface,
-                ExecuteScriptCompletedHandler::add_ref,
-                ExecuteScriptCompletedHandler::release,
-                ExecuteScriptCompletedHandler::invoke,
-            );
-
-        Self {
-            vtable: &VTABLE,
-            refcount: AtomicU32::new(1),
-            completed: Some(completed),
-        }
-    }
-}
-
-impl CallbackInterface<WebView2::ICoreWebView2ExecuteScriptCompletedHandler>
-    for ExecuteScriptCompletedHandler
-{
-    fn refcount(&self) -> &AtomicU32 {
-        &self.refcount
-    }
-}
-
-impl
-    CompletedCallback<WebView2::ICoreWebView2ExecuteScriptCompletedHandler, ErrorCodeArg, StringArg>
-    for ExecuteScriptCompletedHandler
-{
-    fn completed(&mut self) -> Option<ExecuteScriptCompletedCallback> {
-        self.completed.take()
-    }
-}
+#[completed_callback(
+    interface = "WebView2::ICoreWebView2ExecuteScriptCompletedHandler",
+    arg_1 = "ErrorCodeArg",
+    arg_2 = "StringArg"
+)]
+pub struct ExecuteScriptCompletedHandler;
