@@ -391,22 +391,19 @@ impl Webview {
             .expect("spawn_local_with_handle");
 
         let environment = {
-            let handler = Box::new(
-                callback::CreateCoreWebView2EnvironmentCompletedHandler::new(Box::new(
-                    |error_code, environment| {
-                        if error_code.is_ok() {
-                            if let Some(environment) = environment {
-                                context.send(environment);
-                            }
-                        }
-                        windows::ErrorCode::S_OK
-                    },
-                )),
-            );
-
             unsafe {
-                let handler: WebView2::ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler =
-                    callback::from_abi(Box::into_raw(handler) as windows::RawPtr).unwrap();
+                let handler = callback::create::<
+                    callback::CreateCoreWebView2EnvironmentCompletedHandler,
+                >(Box::new(|error_code, environment| {
+                    if error_code.is_ok() {
+                        if let Some(environment) = environment {
+                            context.send(environment);
+                        }
+                    }
+                    windows::ErrorCode::S_OK
+                }))
+                .unwrap();
+
                 WebView2::CreateCoreWebView2Environment(handler);
             };
 
@@ -422,20 +419,18 @@ impl Webview {
             .expect("spawn_local_with_handle");
 
         let controller = {
-            let handler = Box::new(callback::CreateCoreWebView2ControllerCompletedHandler::new(
-                Box::new(|error_code, controller| {
+            unsafe {
+                let handler = callback::create::<
+                    callback::CreateCoreWebView2ControllerCompletedHandler,
+                >(Box::new(|error_code, controller| {
                     if error_code.is_ok() {
                         if let Some(controller) = controller {
                             context.send(controller);
                         }
                     }
                     windows::ErrorCode::S_OK
-                }),
-            ));
-
-            unsafe {
-                let handler: WebView2::ICoreWebView2CreateCoreWebView2ControllerCompletedHandler =
-                    callback::from_abi(Box::into_raw(handler) as windows::RawPtr).unwrap();
+                }))
+                .unwrap();
                 environment.CreateCoreWebView2Controller(h_wnd, handler);
             }
 
@@ -463,33 +458,32 @@ impl Webview {
         let bindings: Arc<Mutex<HashMap<String, Box<dyn FnMut(&str, &str)>>>> =
             Arc::new(Mutex::new(HashMap::new()));
         let bindings_ref = bindings.clone();
-        let handler = Box::new(callback::WebMessageReceivedEventHandler::new(Box::new(
-            move |_sender, args| {
-                let mut message = PWSTR::default();
-                if let Some(args) = args {
-                    let code = windows::ErrorCode(
-                        unsafe { args.get_WebMessageAsJson(&mut message) }.0 as u32,
-                    );
-                    if code.is_ok() {
-                        let message = take_pwstr(message);
-                        if let Ok(value) = serde_json::from_str::<InvokeMessage>(&message) {
-                            let mut bindings = bindings_ref.lock().expect("lock bindings");
-                            if let Some(f) = bindings.get_mut(&value.method) {
-                                let id = serde_json::to_string(&value.id).unwrap();
-                                let params = serde_json::to_string(&value.params).unwrap();
-                                (*f)(&id, &params);
+        let mut token = EventRegistrationToken::default();
+        unsafe {
+            let handler = callback::create::<callback::WebMessageReceivedEventHandler>(Box::new(
+                move |_sender, args| {
+                    let mut message = PWSTR::default();
+                    if let Some(args) = args {
+                        let code = windows::ErrorCode(
+                            args.get_WebMessageAsJson(&mut message).0 as u32,
+                        );
+                        if code.is_ok() {
+                            let message = take_pwstr(message);
+                            if let Ok(value) = serde_json::from_str::<InvokeMessage>(&message) {
+                                let mut bindings = bindings_ref.lock().expect("lock bindings");
+                                if let Some(f) = bindings.get_mut(&value.method) {
+                                    let id = serde_json::to_string(&value.id).unwrap();
+                                    let params = serde_json::to_string(&value.params).unwrap();
+                                    (*f)(&id, &params);
+                                }
                             }
                         }
                     }
-                }
 
-                windows::ErrorCode::S_OK
-            },
-        )));
-        let mut token = EventRegistrationToken::default();
-        unsafe {
-            let handler: WebView2::ICoreWebView2WebMessageReceivedEventHandler =
-                callback::from_abi(Box::into_raw(handler) as windows::RawPtr).unwrap();
+                    windows::ErrorCode::S_OK
+                },
+            ))
+            .unwrap();
             webview.add_WebMessageReceived(handler, &mut token);
         }
 
@@ -552,18 +546,17 @@ impl Webview {
             let mut closure = Some(move || {
                 context.send(());
             });
-            let handler = Box::new(callback::NavigationCompletedEventHandler::new(Box::new(
-                move |_sender, _args| {
-                    if let Some(closure) = closure.take() {
-                        closure();
-                    }
-                    windows::ErrorCode::S_OK
-                },
-            )));
             let mut token = EventRegistrationToken::default();
             unsafe {
-                let handler: WebView2::ICoreWebView2NavigationCompletedEventHandler =
-                    callback::from_abi(Box::into_raw(handler) as windows::RawPtr).unwrap();
+                let handler = callback::create::<callback::NavigationCompletedEventHandler>(
+                    Box::new(move |_sender, _args| {
+                        if let Some(closure) = closure.take() {
+                            closure();
+                        }
+                        windows::ErrorCode::S_OK
+                    }),
+                )
+                .unwrap();
                 self.webview.add_NavigationCompleted(handler, &mut token);
                 self.webview.Navigate(url);
             }
@@ -684,20 +677,17 @@ impl Webview {
         let output = spawner
             .spawn_local_with_handle(rx)
             .expect("spawn_local_with_handle");
-        let handler = Box::new(
-            callback::AddScriptToExecuteOnDocumentCreatedCompletedHandler::new(Box::new(
-                |error_code, id| {
-                    if error_code.is_ok() {
-                        context.send(id);
-                    }
-                    windows::ErrorCode::S_OK
-                },
-            )),
-        );
-
         unsafe {
-            let handler: WebView2::ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler =
-            callback::from_abi(Box::into_raw(handler) as windows::RawPtr).unwrap();
+            let handler = callback::create::<
+                callback::AddScriptToExecuteOnDocumentCreatedCompletedHandler,
+            >(Box::new(|error_code, id| {
+                if error_code.is_ok() {
+                    context.send(id);
+                }
+                windows::ErrorCode::S_OK
+            }))
+            .unwrap();
+
             self.webview
                 .AddScriptToExecuteOnDocumentCreated(js, handler);
         };
@@ -715,18 +705,17 @@ impl Webview {
         let output = spawner
             .spawn_local_with_handle(rx)
             .expect("spawn_local_with_handle");
-        let handler = Box::new(callback::ExecuteScriptCompletedHandler::new(Box::new(
-            |error_code, result| {
-                if error_code.is_ok() {
-                    context.send(result);
-                }
-                windows::ErrorCode::S_OK
-            },
-        )));
-
         unsafe {
-            let handler: WebView2::ICoreWebView2ExecuteScriptCompletedHandler =
-                callback::from_abi(Box::into_raw(handler) as windows::RawPtr).unwrap();
+            let handler = callback::create::<callback::ExecuteScriptCompletedHandler>(Box::new(
+                |error_code, result| {
+                    if error_code.is_ok() {
+                        context.send(result);
+                    }
+                    windows::ErrorCode::S_OK
+                },
+            ))
+            .unwrap();
+
             self.webview.ExecuteScript(js, handler);
         };
 

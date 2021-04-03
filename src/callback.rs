@@ -8,10 +8,18 @@ use windows::{Abi, Interface};
 
 use bindings::Windows::Win32::{Com::HRESULT, SystemServices::PWSTR, WebView2};
 
-pub unsafe fn from_abi<I: Interface>(this: windows::RawPtr) -> windows::Result<I> {
+unsafe fn from_abi<I: Interface>(this: windows::RawPtr) -> windows::Result<I> {
     let unknown = windows::IUnknown::from_abi(this)?;
     unknown.vtable().1(unknown.abi()); // add_ref to balance the release called in IUnknown::drop
     Ok(unknown.cast()?)
+}
+
+pub unsafe fn create<T: Callback>(
+    closure: <T as Callback>::Closure,
+) -> windows::Result<<T as Callback>::Interface> {
+    let handler = Box::new(T::new(closure));
+    let handler = from_abi(Box::into_raw(handler) as windows::RawPtr)?;
+    Ok(handler)
 }
 
 pub fn string_from_pwstr(source: PWSTR) -> String {
@@ -28,7 +36,14 @@ pub fn string_from_pwstr(source: PWSTR) -> String {
     String::from_utf16(&buffer).expect("string_from_pwstr")
 }
 
-pub trait CallbackInterface<I: Interface>: Sized {
+pub trait Callback {
+    type Interface: Interface;
+    type Closure;
+
+    fn new(closure: Self::Closure) -> Self;
+}
+
+pub trait CallbackInterface<T: Callback>: Sized {
     fn refcount(&self) -> &AtomicU32;
 
     unsafe extern "system" fn query_interface(
@@ -38,7 +53,9 @@ pub trait CallbackInterface<I: Interface>: Sized {
     ) -> windows::ErrorCode {
         if interface.is_null() {
             windows::ErrorCode::E_POINTER
-        } else if *iid == windows::IUnknown::IID || *iid == <I as Interface>::IID {
+        } else if *iid == windows::IUnknown::IID
+            || *iid == <<T as Callback>::Interface as Interface>::IID
+        {
             Self::add_ref(this);
             *interface = this;
             windows::ErrorCode::S_OK
@@ -64,8 +81,6 @@ pub trait CallbackInterface<I: Interface>: Sized {
     }
 }
 
-type CompletedClosure<Arg1, Arg2> = Box<dyn FnOnce(Arg1, Arg2) -> windows::ErrorCode>;
-
 pub trait ClosureArg {
     type Input;
     type Output;
@@ -73,27 +88,7 @@ pub trait ClosureArg {
     fn convert(input: Self::Input) -> Self::Output;
 }
 
-pub trait CompletedCallback<I: Interface, Arg1: ClosureArg, Arg2: ClosureArg>:
-    CallbackInterface<I>
-{
-    fn completed(&mut self) -> Option<CompletedClosure<Arg1::Output, Arg2::Output>>;
-
-    unsafe extern "system" fn invoke(
-        this: windows::RawPtr,
-        arg_1: Arg1::Input,
-        arg_2: Arg2::Input,
-    ) -> HRESULT {
-        let interface: *mut Self = mem::transmute(this);
-        match (*interface).completed() {
-            Some(completed) => {
-                HRESULT(completed(Arg1::convert(arg_1), Arg2::convert(arg_2)).0 as i32)
-            }
-            None => HRESULT(windows::ErrorCode::S_OK.0 as i32),
-        }
-    }
-}
-
-pub struct ErrorCodeArg();
+pub struct ErrorCodeArg;
 
 impl ClosureArg for ErrorCodeArg {
     type Input = HRESULT;
@@ -122,24 +117,43 @@ impl<I: Interface> ClosureArg for InterfaceArg<I> {
     }
 }
 
-#[completed_callback(
-    interface = "WebView2::ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler",
-    arg_1 = "ErrorCodeArg",
-    arg_2 = "InterfaceArg<WebView2::ICoreWebView2Environment>"
-)]
-pub struct CreateCoreWebView2EnvironmentCompletedHandler;
+pub struct StringArg;
 
-#[completed_callback(
-    interface = "WebView2::ICoreWebView2CreateCoreWebView2ControllerCompletedHandler",
-    arg_1 = "ErrorCodeArg",
-    arg_2 = "InterfaceArg<WebView2::ICoreWebView2Controller>"
-)]
-pub struct CreateCoreWebView2ControllerCompletedHandler;
+impl ClosureArg for StringArg {
+    type Input = PWSTR;
+    type Output = String;
+
+    fn convert(input: PWSTR) -> String {
+        string_from_pwstr(input)
+    }
+}
+
+type CompletedClosure<Arg1, Arg2> = Box<dyn FnOnce(Arg1, Arg2) -> windows::ErrorCode>;
+
+pub trait CompletedCallback<T: Callback, Arg1: ClosureArg, Arg2: ClosureArg>:
+    CallbackInterface<T>
+{
+    fn completed(&mut self) -> Option<CompletedClosure<Arg1::Output, Arg2::Output>>;
+
+    unsafe extern "system" fn invoke(
+        this: windows::RawPtr,
+        arg_1: Arg1::Input,
+        arg_2: Arg2::Input,
+    ) -> HRESULT {
+        let interface: *mut Self = mem::transmute(this);
+        match (*interface).completed() {
+            Some(completed) => {
+                HRESULT(completed(Arg1::convert(arg_1), Arg2::convert(arg_2)).0 as i32)
+            }
+            None => HRESULT(windows::ErrorCode::S_OK.0 as i32),
+        }
+    }
+}
 
 type EventClosure<Arg1, Arg2> = Box<dyn FnMut(Arg1, Arg2) -> windows::ErrorCode>;
 
-pub trait EventCallback<I: Interface, Arg1: ClosureArg, Arg2: ClosureArg>:
-    CallbackInterface<I>
+pub trait EventCallback<T: Callback, Arg1: ClosureArg, Arg2: ClosureArg>:
+    CallbackInterface<T>
 {
     fn event(&mut self) -> &mut EventClosure<Arg1::Output, Arg2::Output>;
 
@@ -153,41 +167,44 @@ pub trait EventCallback<I: Interface, Arg1: ClosureArg, Arg2: ClosureArg>:
     }
 }
 
+#[completed_callback(
+    interface = "WebView2::ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler",
+    arg_1 = "ErrorCodeArg",
+    arg_2 = "InterfaceArg<WebView2::ICoreWebView2Environment>"
+)]
+struct CreateCoreWebView2EnvironmentCompletedHandler;
+
+#[completed_callback(
+    interface = "WebView2::ICoreWebView2CreateCoreWebView2ControllerCompletedHandler",
+    arg_1 = "ErrorCodeArg",
+    arg_2 = "InterfaceArg<WebView2::ICoreWebView2Controller>"
+)]
+struct CreateCoreWebView2ControllerCompletedHandler;
+
 #[event_callback(
     interface = "WebView2::ICoreWebView2WebMessageReceivedEventHandler",
     arg_1 = "InterfaceArg<WebView2::ICoreWebView2>",
     arg_2 = "InterfaceArg<WebView2::ICoreWebView2WebMessageReceivedEventArgs>"
 )]
-pub struct WebMessageReceivedEventHandler;
+struct WebMessageReceivedEventHandler;
 
 #[event_callback(
     interface = "WebView2::ICoreWebView2NavigationCompletedEventHandler",
     arg_1 = "InterfaceArg<WebView2::ICoreWebView2>",
     arg_2 = "InterfaceArg<WebView2::ICoreWebView2NavigationCompletedEventArgs>"
 )]
-pub struct NavigationCompletedEventHandler;
-
-pub struct StringArg();
-
-impl ClosureArg for StringArg {
-    type Input = PWSTR;
-    type Output = String;
-
-    fn convert(input: PWSTR) -> String {
-        string_from_pwstr(input)
-    }
-}
+struct NavigationCompletedEventHandler;
 
 #[completed_callback(
     interface = "WebView2::ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler",
     arg_1 = "ErrorCodeArg",
     arg_2 = "StringArg"
 )]
-pub struct AddScriptToExecuteOnDocumentCreatedCompletedHandler;
+struct AddScriptToExecuteOnDocumentCreatedCompletedHandler;
 
 #[completed_callback(
     interface = "WebView2::ICoreWebView2ExecuteScriptCompletedHandler",
     arg_1 = "ErrorCodeArg",
     arg_2 = "StringArg"
 )]
-pub struct ExecuteScriptCompletedHandler;
+struct ExecuteScriptCompletedHandler;

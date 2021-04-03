@@ -34,8 +34,11 @@ fn impl_completed_callback(args: &AttributeArgs, ast: &ItemStruct) -> Result<Tok
                     completed: Option<#closure>,
                 }
 
-                impl #name {
-                    pub fn new(completed: #closure) -> Self {
+                impl Callback for #name {
+                    type Interface = #interface;
+                    type Closure = #closure;
+
+                    fn new(completed: #closure) -> Self {
                         static VTABLE: #abi = #abi(
                             #name::query_interface,
                             #name::add_ref,
@@ -51,13 +54,13 @@ fn impl_completed_callback(args: &AttributeArgs, ast: &ItemStruct) -> Result<Tok
                     }
                 }
 
-                impl CallbackInterface<#interface> for #name {
+                impl CallbackInterface<#name> for #name {
                     fn refcount(&self) -> &AtomicU32 {
                         &self.refcount
                     }
                 }
 
-                impl CompletedCallback<#interface, #arg_1, #arg_2> for #name {
+                impl CompletedCallback<#name, #arg_1, #arg_2> for #name {
                     fn completed(&mut self) -> Option<#closure> {
                         self.completed.take()
                     }
@@ -99,8 +102,11 @@ fn impl_event_callback(args: &AttributeArgs, ast: &ItemStruct) -> Result<TokenSt
                     event: #closure,
                 }
 
-                impl #name {
-                    pub fn new(event: #closure) -> Self {
+                impl Callback for #name {
+                    type Interface = #interface;
+                    type Closure = #closure;
+
+                    fn new(event: #closure) -> Self {
                         static VTABLE: #abi = #abi(
                             #name::query_interface,
                             #name::add_ref,
@@ -116,13 +122,13 @@ fn impl_event_callback(args: &AttributeArgs, ast: &ItemStruct) -> Result<TokenSt
                     }
                 }
 
-                impl CallbackInterface<#interface> for #name {
+                impl CallbackInterface<#name> for #name {
                     fn refcount(&self) -> &AtomicU32 {
                         &self.refcount
                     }
                 }
 
-                impl EventCallback<#interface, #arg_1, #arg_2> for #name {
+                impl EventCallback<#name, #arg_1, #arg_2> for #name {
                     fn event(&mut self) -> &mut #closure {
                         &mut self.event
                     }
