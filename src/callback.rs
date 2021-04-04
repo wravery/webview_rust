@@ -167,44 +167,44 @@ pub trait EventCallback<T: Callback, Arg1: ClosureArg, Arg2: ClosureArg>:
     }
 }
 
-#[completed_callback(
-    interface = "WebView2::ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler",
-    arg_1 = "ErrorCodeArg",
-    arg_2 = "InterfaceArg<WebView2::ICoreWebView2Environment>"
-)]
-struct CreateCoreWebView2EnvironmentCompletedHandler;
+#[completed_callback]
+pub struct CreateCoreWebView2EnvironmentCompletedHandler(
+    WebView2::ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler,
+    ErrorCodeArg,
+    InterfaceArg<WebView2::ICoreWebView2Environment>,
+);
 
-#[completed_callback(
-    interface = "WebView2::ICoreWebView2CreateCoreWebView2ControllerCompletedHandler",
-    arg_1 = "ErrorCodeArg",
-    arg_2 = "InterfaceArg<WebView2::ICoreWebView2Controller>"
-)]
-struct CreateCoreWebView2ControllerCompletedHandler;
+#[completed_callback]
+pub struct CreateCoreWebView2ControllerCompletedHandler(
+    WebView2::ICoreWebView2CreateCoreWebView2ControllerCompletedHandler,
+    ErrorCodeArg,
+    InterfaceArg<WebView2::ICoreWebView2Controller>,
+);
 
-#[event_callback(
-    interface = "WebView2::ICoreWebView2WebMessageReceivedEventHandler",
-    arg_1 = "InterfaceArg<WebView2::ICoreWebView2>",
-    arg_2 = "InterfaceArg<WebView2::ICoreWebView2WebMessageReceivedEventArgs>"
-)]
-struct WebMessageReceivedEventHandler;
+#[event_callback]
+pub struct WebMessageReceivedEventHandler(
+    WebView2::ICoreWebView2WebMessageReceivedEventHandler,
+    InterfaceArg<WebView2::ICoreWebView2>,
+    InterfaceArg<WebView2::ICoreWebView2WebMessageReceivedEventArgs>,
+);
 
-#[event_callback(
-    interface = "WebView2::ICoreWebView2NavigationCompletedEventHandler",
-    arg_1 = "InterfaceArg<WebView2::ICoreWebView2>",
-    arg_2 = "InterfaceArg<WebView2::ICoreWebView2NavigationCompletedEventArgs>"
-)]
-struct NavigationCompletedEventHandler;
+#[event_callback]
+pub struct NavigationCompletedEventHandler(
+    WebView2::ICoreWebView2NavigationCompletedEventHandler,
+    InterfaceArg<WebView2::ICoreWebView2>,
+    InterfaceArg<WebView2::ICoreWebView2NavigationCompletedEventArgs>,
+);
 
-#[completed_callback(
-    interface = "WebView2::ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler",
-    arg_1 = "ErrorCodeArg",
-    arg_2 = "StringArg"
-)]
-struct AddScriptToExecuteOnDocumentCreatedCompletedHandler;
+#[completed_callback]
+pub struct AddScriptToExecuteOnDocumentCreatedCompletedHandler(
+    WebView2::ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler,
+    ErrorCodeArg,
+    StringArg,
+);
 
-#[completed_callback(
-    interface = "WebView2::ICoreWebView2ExecuteScriptCompletedHandler",
-    arg_1 = "ErrorCodeArg",
-    arg_2 = "StringArg"
-)]
-struct ExecuteScriptCompletedHandler;
+#[completed_callback]
+pub struct ExecuteScriptCompletedHandler(
+    WebView2::ICoreWebView2ExecuteScriptCompletedHandler,
+    ErrorCodeArg,
+    StringArg,
+);
