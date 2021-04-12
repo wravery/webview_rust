@@ -6,7 +6,10 @@ use std::{
 
 use windows::{Abi, Interface};
 
-use bindings::Windows::Win32::{Com::HRESULT, SystemServices::PWSTR, WebView2};
+use bindings::{
+    Microsoft::Web::WebView2,
+    Windows::Win32::SystemServices::PWSTR,
+};
 
 unsafe fn from_abi<I: Interface>(this: windows::RawPtr) -> windows::Result<I> {
     let unknown = windows::IUnknown::from_abi(this)?;
@@ -91,11 +94,11 @@ pub trait ClosureArg {
 pub struct ErrorCodeArg;
 
 impl ClosureArg for ErrorCodeArg {
-    type Input = HRESULT;
+    type Input = windows::ErrorCode;
     type Output = windows::ErrorCode;
 
-    fn convert(input: HRESULT) -> windows::ErrorCode {
-        windows::ErrorCode(input.0 as u32)
+    fn convert(input: windows::ErrorCode) -> windows::ErrorCode {
+        input
     }
 }
 
@@ -139,13 +142,13 @@ pub trait CompletedCallback<T: Callback, Arg1: ClosureArg, Arg2: ClosureArg>:
         this: windows::RawPtr,
         arg_1: Arg1::Input,
         arg_2: Arg2::Input,
-    ) -> HRESULT {
+    ) -> windows::ErrorCode {
         let interface: *mut Self = mem::transmute(this);
         match (*interface).completed() {
             Some(completed) => {
-                HRESULT(completed(Arg1::convert(arg_1), Arg2::convert(arg_2)).0 as i32)
+                completed(Arg1::convert(arg_1), Arg2::convert(arg_2))
             }
-            None => HRESULT(windows::ErrorCode::S_OK.0 as i32),
+            None => windows::ErrorCode::S_OK,
         }
     }
 }
@@ -161,9 +164,9 @@ pub trait EventCallback<T: Callback, Arg1: ClosureArg, Arg2: ClosureArg>:
         this: windows::RawPtr,
         arg_1: Arg1::Input,
         arg_2: Arg2::Input,
-    ) -> HRESULT {
+    ) -> windows::ErrorCode {
         let interface: *mut Self = mem::transmute(this);
-        HRESULT(((*interface).event())(Arg1::convert(arg_1), Arg2::convert(arg_2)).0 as i32)
+        ((*interface).event())(Arg1::convert(arg_1), Arg2::convert(arg_2))
     }
 }
 

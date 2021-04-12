@@ -73,8 +73,6 @@ mod webview2_nuget {
             None => return Err(io::Error::from(io::ErrorKind::NotFound)),
         }
 
-        println!("cargo:rustc-link-lib=static={}", WEBVIEW2_DLL);
-
         source_path.push(WEBVIEW2_DLL);
         Ok(source_path)
     }

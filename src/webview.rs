@@ -10,19 +10,21 @@ use futures::{channel::oneshot, executor, task::LocalSpawnExt};
 use serde::Deserialize;
 use serde_json::Value;
 
-use bindings::Windows::Win32::{
-    Com, Debug,
-    DisplayDevices::{POINT, RECT},
-    Gdi,
-    HiDpi::{self, PROCESS_DPI_AWARENESS},
-    KeyboardAndMouseInput,
-    MenusAndResources::HMENU,
-    SystemServices::{self, HINSTANCE, LRESULT, PSTR, PWSTR},
-    WebView2,
-    WinRT::EventRegistrationToken,
-    WindowsAndMessaging::{
-        self, HWND, LPARAM, MINMAXINFO, SHOW_WINDOW_CMD, WINDOW_EX_STYLE, WINDOW_LONG_PTR_INDEX,
-        WINDOW_STYLE, WNDCLASSA, WPARAM,
+use bindings::{
+    Microsoft::Web::WebView2,
+    Windows::Win32::{
+        Com, Debug,
+        DisplayDevices::{POINT, RECT},
+        Gdi,
+        HiDpi::{self, PROCESS_DPI_AWARENESS},
+        KeyboardAndMouseInput,
+        MenusAndResources::HMENU,
+        SystemServices::{self, HINSTANCE, LRESULT, PSTR, PWSTR},
+        WinRT::EventRegistrationToken,
+        WindowsAndMessaging::{
+            self, HWND, LPARAM, MINMAXINFO, SHOW_WINDOW_CMD, WINDOW_EX_STYLE,
+            WINDOW_LONG_PTR_INDEX, WINDOW_STYLE, WNDCLASSA, WPARAM,
+        },
     },
 };
 
@@ -91,8 +93,8 @@ impl Drop for Webview {
         match Arc::strong_count(&self.parent) {
             0 => {
                 unsafe {
-                    self.webview.remove_WebMessageReceived(self.token);
-                    self.controller.Close();
+                    let _ = self.webview.remove_WebMessageReceived(self.token);
+                    let _ = self.controller.Close();
                 }
 
                 if self.frame.is_none() {
@@ -269,7 +271,7 @@ impl Webview {
                 WindowsAndMessaging::WM_SIZE => {
                     let size = Webview::get_window_size(h_wnd);
                     unsafe {
-                        webview.controller.put_Bounds(RECT {
+                        let _ = webview.controller.put_Bounds(RECT {
                             left: 0,
                             top: 0,
                             right: size.width,
@@ -404,7 +406,7 @@ impl Webview {
                 }))
                 .unwrap();
 
-                WebView2::CreateCoreWebView2Environment(handler);
+                let _ = WebView2::CreateCoreWebView2Environment(handler);
             };
 
             Webview::run_one(&mut pool);
@@ -431,7 +433,7 @@ impl Webview {
                     windows::ErrorCode::S_OK
                 }))
                 .unwrap();
-                environment.CreateCoreWebView2Controller(h_wnd, handler);
+                let _ = environment.CreateCoreWebView2Controller(h_wnd, handler);
             }
 
             Webview::run_one(&mut pool);
@@ -441,18 +443,18 @@ impl Webview {
 
         let size = Webview::get_window_size(h_wnd);
         unsafe {
-            controller.put_Bounds(RECT {
+            let _ = controller.put_Bounds(RECT {
                 left: 0,
                 top: 0,
                 right: size.width,
                 bottom: size.height,
             });
-            controller.put_IsVisible(true);
+            let _ = controller.put_IsVisible(true);
         }
 
         let mut webview = None;
         unsafe {
-            controller.get_CoreWebView2(&mut webview);
+            let _ = controller.get_CoreWebView2(&mut webview);
         }
         let webview = webview.expect("get_CoreWebView2");
         let bindings: Arc<Mutex<HashMap<String, Box<dyn FnMut(&str, &str)>>>> =
@@ -464,9 +466,7 @@ impl Webview {
                 move |_sender, args| {
                     let mut message = PWSTR::default();
                     if let Some(args) = args {
-                        let code = windows::ErrorCode(
-                            args.get_WebMessageAsJson(&mut message).0 as u32,
-                        );
+                        let code = args.get_WebMessageAsJson(&mut message);
                         if code.is_ok() {
                             let message = take_pwstr(message);
                             if let Ok(value) = serde_json::from_str::<InvokeMessage>(&message) {
@@ -484,17 +484,17 @@ impl Webview {
                 },
             ))
             .unwrap();
-            webview.add_WebMessageReceived(handler, &mut token);
+            let _ = webview.add_WebMessageReceived(handler, &mut token);
         }
 
         if !debug {
             let mut settings = None;
             unsafe {
-                let code = windows::ErrorCode(webview.get_Settings(&mut settings).0 as u32);
+                let code = webview.get_Settings(&mut settings);
                 if code.is_ok() {
                     if let Some(settings) = settings {
-                        settings.put_AreDevToolsEnabled(false);
-                        settings.put_AreDefaultContextMenusEnabled(false);
+                        let _ = settings.put_AreDevToolsEnabled(false);
+                        let _ = settings.put_AreDefaultContextMenusEnabled(false);
                     }
                 }
             }
@@ -557,8 +557,8 @@ impl Webview {
                     }),
                 )
                 .unwrap();
-                self.webview.add_NavigationCompleted(handler, &mut token);
-                self.webview.Navigate(url);
+                let _ = self.webview.add_NavigationCompleted(handler, &mut token);
+                let _ = self.webview.Navigate(url);
             }
 
             Webview::run_one(&mut pool);
@@ -566,7 +566,7 @@ impl Webview {
             pool.run_until(output).expect("completed the navigation");
 
             unsafe {
-                self.webview.remove_NavigationCompleted(token);
+                let _ = self.webview.remove_NavigationCompleted(token);
             }
         }
 
@@ -636,7 +636,7 @@ impl Webview {
                     *frame.size.lock().expect("lock size") = WindowSize { width, height };
 
                     unsafe {
-                        self.controller.put_Bounds(RECT {
+                        let _ = self.controller.put_Bounds(RECT {
                             left: 0,
                             top: 0,
                             right: width,
@@ -688,7 +688,8 @@ impl Webview {
             }))
             .unwrap();
 
-            self.webview
+            let _ = self
+                .webview
                 .AddScriptToExecuteOnDocumentCreated(js, handler);
         };
 
@@ -716,7 +717,7 @@ impl Webview {
             ))
             .unwrap();
 
-            self.webview.ExecuteScript(js, handler);
+            let _ = self.webview.ExecuteScript(js, handler);
         };
 
         Webview::run_one(&mut pool);
